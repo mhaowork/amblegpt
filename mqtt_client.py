@@ -3,8 +3,6 @@ import imageio
 import os
 from dotenv import load_dotenv
 import json
-import openai
-import replicate
 import requests
 import paho.mqtt.client as mqtt
 import io
@@ -17,9 +15,9 @@ load_dotenv()
 
 
 # Define the MQTT server settings
-MQTT_BROKER = '100.116.240.70'
+MQTT_BROKER = "100.116.240.70"
 MQTT_PORT = 1883
-MQTT_TOPIC = 'frigate/events'
+MQTT_TOPIC = "frigate/events"
 
 
 # Define Frigate server details for thumbnail retrieval
@@ -62,8 +60,9 @@ Some example SUMMARIES are
     2. One Amazon delivery person (in blue vest) dropped off a package
     3. A female is waiting, facing the door
     4. A person is wandering without obvious purpose
-""" % (GAP_SECS)
-
+""" % (
+    GAP_SECS
+)
 
 
 def prompt_gpt4(filename: str):
@@ -71,60 +70,68 @@ def prompt_gpt4(filename: str):
     You're reviewing an image from a security camera mounted outside on one side of the vehicle's roof rack. \
     Describe any potential security threats or suspicious activities you observe in the image.\
     "
-    client = OpenAI()
     # Getting the base64 string
     with open(filename, "rb") as image_file:
-        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        base64_image = base64.b64encode(image_file.read()).decode("utf-8")
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"
+        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
     }
 
     payload = {
         "model": "gpt-4-vision-preview",
         "messages": [
-        {
-            "role": "user",
-            "content": [
             {
-                "type": "text",
-                "text": prompt
-            },
-            {
-                "type": "image_url",
-                "image_url": {
-                "url": f"data:image/jpeg;base64,{base64_image}"
-                }
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                    },
+                ],
             }
-            ]
-        }
         ],
-        "max_tokens": 300
+        "max_tokens": 300,
     }
 
-    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
+    )
 
     print(response.json())
 
+
 def prompt_gpt4_with_video_frames(prompt, base64_frames):
+    print("prompting GPT-4v")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"
+    }
     PROMPT_MESSAGES = [
         {
             "role": "user",
             "content": [
                 prompt,
-                *map(lambda x: {"image": x}, base64_frames),
+                *map(
+                    lambda frame: {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{frame}"},
+                    },
+                    base64_frames,
+                ),
             ],
         },
     ]
-    params = {
+    payload = {
         "model": "gpt-4-vision-preview",
         "messages": PROMPT_MESSAGES,
-        "api_key": os.environ["OPENAI_API_KEY"],
         "max_tokens": 200,
     }
 
-    return openai.ChatCompletion.create(**params)
+    return requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+
 
 
 
@@ -132,24 +139,27 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
 def download_video_clip_and_extract_frames(event_id, gap_secs):
     clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(event_id)}"
     response = requests.get(clip_url)
-    
+
     if response.status_code == 200:
         clip_filename = f"clip_{event_id}.mp4"
-        with open(clip_filename, 'wb') as f:
+        with open(clip_filename, "wb") as f:
             f.write(response.content)
         print(f"Video clip for event {event_id} saved as {clip_filename}.")
-        
+
         # After downloading, extract frames
         return extract_frames(clip_filename, gap_secs)
     else:
-        print(f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}")
+        print(
+            f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}"
+        )
         return []
+
 
 def extract_frames(video_path, gap_secs):
     reader = imageio.get_reader(video_path)
-    fps = reader.get_meta_data()['fps']
+    fps = reader.get_meta_data()["fps"]
     frames = []
-    
+
     for i, frame in enumerate(reader):
         # Extract a frame every {gap_secs} seconds
         if i % (int(gap_secs * fps)) == 0:
@@ -170,47 +180,51 @@ def extract_frames(video_path, gap_secs):
     return frames
 
 
-
 # Define what to do when the client connects to the broker
 def on_connect(client, userdata, flags, rc):
     print("Connected with result code " + str(rc))
     client.subscribe(MQTT_TOPIC)  # Subscribe to the topic
+
 
 # Define what to do when a message is received
 def on_message(client, userdata, msg):
     # Parse the message payload as JSON
     event_id = None
     try:
-        payload = json.loads(msg.payload.decode('utf-8'))
-        if payload['after']['summary']:
+        payload = json.loads(msg.payload.decode("utf-8"))
+        if payload["after"]["summary"]:
             # Skip if this message has already been processed
             print("Skipping message that has already been processed")
             return
-        event_id = payload['after']['id']
+        event_id = payload["after"]["id"]
         print(f"Event ID from 'after': {event_id}")
 
-        video_base64_frames = download_video_clip_and_extract_frames(event_id, gap_secs=GAP_SECS)
+        video_base64_frames = download_video_clip_and_extract_frames(
+            event_id, gap_secs=GAP_SECS
+        )
 
         response = prompt_gpt4_with_video_frames(PROMPT, video_base64_frames)
-        json_str = response.choices[0].message.content
+        print("response.json()", response.json())
+        json_str = response.json()["choices"][0]["message"]["content"]
         result = json.loads(json_str)
-        print('summary', result['summary'])
-                
+        print("summary", result["summary"])
+
         # Set the summary to the 'after' field
-        payload['after']['summary'] = "| GPT: " + result['summary']
-        
+        payload["after"]["summary"] = "| GPT: " + result["summary"]
+
         # Convert the updated payload back to a JSON string
         updated_payload_json = json.dumps(payload)
-        
+
         # Publish the updated payload back to the MQTT topic
         client.publish(MQTT_TOPIC, updated_payload_json)
         print("Published updated payload with summary back to MQTT topic.")
-        
+
     except json.JSONDecodeError as e:
         print("Error decoding JSON:", e)
     except KeyError as e:
         print(f"Key {e} not found in JSON payload")
-        
+
+
 if __name__ == "__main__":
     # Create a client instance
     client = mqtt.Client()
@@ -224,5 +238,3 @@ if __name__ == "__main__":
 
     # Blocking call that processes network traffic, dispatches callbacks, and handles reconnecting
     client.loop_forever()
-
-
