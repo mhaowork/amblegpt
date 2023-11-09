@@ -7,6 +7,8 @@ import requests
 import paho.mqtt.client as mqtt
 import io
 from PIL import Image
+import tempfile
+
 
 
 # Load environment variables from .env file
@@ -140,7 +142,10 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
     response = requests.get(clip_url)
 
     if response.status_code == 200:
-        clip_filename = f"clip_{event_id}.mp4"
+        # Create a temporary directory
+        temp_dir = tempfile.TemporaryDirectory()
+        clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
+
         with open(clip_filename, "wb") as f:
             f.write(response.content)
         print(f"Video clip for event {event_id} saved as {clip_filename}.")
