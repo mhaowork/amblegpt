@@ -9,7 +9,6 @@ import io
 from PIL import Image
 
 
-
 # Load environment variables from .env file
 load_dotenv()
 
@@ -107,7 +106,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
     print("prompting GPT-4v")
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"
+        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
     }
     PROMPT_MESSAGES = [
         {
@@ -130,9 +129,9 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
         "max_tokens": 200,
     }
 
-    return requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-
-
+    return requests.post(
+        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
+    )
 
 
 # Function to download video clip and extract frames
