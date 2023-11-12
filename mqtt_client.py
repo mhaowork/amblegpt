@@ -10,11 +10,19 @@ import io
 from PIL import Image
 import tempfile
 
+import logging
+
+
+from multiprocessing import Process, current_process
+import multiprocessing
 
 
 # Load environment variables from .env file
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO, format='%(processName)s: %(message)s')
+
+ongoing_tasks = {}
 
 # Define the MQTT server settings
 MQTT_BROKER = "100.116.240.70"
@@ -200,25 +208,9 @@ def extract_frames(video_path, gap_secs):
     return frames
 
 
-# Define what to do when the client connects to the broker
-def on_connect(client, userdata, flags, rc):
-    print("Connected with result code " + str(rc))
-    client.subscribe(MQTT_TOPIC)  # Subscribe to the topic
-
-
-# Define what to do when a message is received
-def on_message(client, userdata, msg):
-    # Parse the message payload as JSON
-    event_id = None
+def process_message(payload):
     try:
-        payload = json.loads(msg.payload.decode("utf-8"))
-        if 'summary' in payload['after'] and payload['after']['summary']:
-            # Skip if this message has already been processed
-            print("Skipping message that has already been processed")
-            return
         event_id = payload["after"]["id"]
-        print(f"Event ID from 'after': {event_id}")
-
         video_base64_frames = download_video_clip_and_extract_frames(
             event_id, gap_secs=GAP_SECS
         )
@@ -239,8 +231,51 @@ def on_message(client, userdata, msg):
         updated_payload_json = json.dumps(payload)
 
         # Publish the updated payload back to the MQTT topic
+        # Create a new MQTT client
+        client = mqtt.Client()
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.publish(MQTT_TOPIC, updated_payload_json)
         print("Published updated payload with summary back to MQTT topic.")
+    except Exception as e:
+        print(f"Error processing video for event {event_id}: {e}")
+    finally:
+        # Cleanup: remove the task from the ongoing_tasks dict
+        if event_id in ongoing_tasks:
+            del ongoing_tasks[event_id]
+
+
+# Define what to do when the client connects to the broker
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code " + str(rc))
+    client.subscribe(MQTT_TOPIC)  # Subscribe to the topic
+
+
+# Define what to do when a message is received
+def on_message(client, userdata, msg):
+    global ongoing_tasks
+
+    # Parse the message payload as JSON
+    event_id = None
+    try:
+        payload = json.loads(msg.payload.decode("utf-8"))
+        if 'summary' in payload['after'] and payload['after']['summary']:
+            # Skip if this message has already been processed
+            print("Skipping message that has already been processed")
+            return
+        event_id = payload["after"]["id"]
+        print(f"Event ID from 'after': {event_id}")
+
+        # If there's an ongoing task for the same event, terminate it
+        if event_id in ongoing_tasks:
+            ongoing_tasks[event_id].terminate()
+            ongoing_tasks[event_id].join()  # Wait for process to terminate
+            print(f"Terminated ongoing task for event {event_id}")
+
+        # Start a new task for the new message
+        processing_task = Process(target=process_message, args=(payload,))
+        processing_task.start()
+        ongoing_tasks[event_id] = processing_task
+
 
     except json.JSONDecodeError as e:
         print("Error decoding JSON:", e)
