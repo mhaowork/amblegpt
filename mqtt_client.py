@@ -1,4 +1,5 @@
 import base64
+import pathlib
 import imageio
 import os
 from dotenv import load_dotenv
@@ -143,8 +144,10 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
 
     if response.status_code == 200:
         # Create a temporary directory
-        temp_dir = tempfile.TemporaryDirectory()
-        clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
+        # temp_dir = tempfile.TemporaryDirectory()
+        # clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
+
+        clip_filename = "cache_video/" + f"clip_{event_id}.mp4"
 
         with open(clip_filename, "wb") as f:
             f.write(response.content)
@@ -160,6 +163,7 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
 
 
 def extract_frames(video_path, gap_secs):
+    print("Extrating frames from video")
     reader = imageio.get_reader(video_path)
     fps = reader.get_meta_data()["fps"]
     frames = []
@@ -169,11 +173,23 @@ def extract_frames(video_path, gap_secs):
         if i % (int(gap_secs * fps)) == 0:
             # Convert to PIL Image to resize
             image = Image.fromarray(frame)
+
             # Calculate the new size, maintaining the aspect ratio
             ratio = min(500 / image.size[0], 500 / image.size[1])
             new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
             # Resize the image
             resized_image = image.resize(new_size, Image.Resampling.LANCZOS)
+
+            # Cache frames locally for debug
+            # Extract the video file name and create a directory for frames
+            video_name = pathlib.Path(video_path).stem
+            frames_dir = os.path.join('cache_video', video_name)
+            os.makedirs(frames_dir, exist_ok=True)
+            # Frame file name
+            frame_file = os.path.join(frames_dir, f"frame_{i}.jpg")
+            # Save the frame
+            resized_image.save(frame_file, "JPEG")
+
             # Convert back to bytes
             with io.BytesIO() as output:
                 resized_image.save(output, format="JPEG")
@@ -196,7 +212,7 @@ def on_message(client, userdata, msg):
     event_id = None
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
-        if payload["after"]["summary"]:
+        if 'summary' in payload['after'] and payload['after']['summary']:
             # Skip if this message has already been processed
             print("Skipping message that has already been processed")
             return
@@ -206,6 +222,9 @@ def on_message(client, userdata, msg):
         video_base64_frames = download_video_clip_and_extract_frames(
             event_id, gap_secs=GAP_SECS
         )
+
+        if len(video_base64_frames) == 0:
+            return
 
         response = prompt_gpt4_with_video_frames(PROMPT, video_base64_frames)
         print("response.json()", response.json())
