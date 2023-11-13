@@ -261,7 +261,7 @@ def on_message(client, userdata, msg):
             # Skip if this message has already been processed. To prevent echo loops
             logging.info("Skipping message that has already been processed")
             return
-        if payload['before']['snapshot_time'] == payload['after']['snapshot_time'] and (payload['type'] != 'end'):
+        if payload['before']['snapshot_time'] == payload['after']['snapshot_time'] and (payload['type'] != 'end') and (event_id in ongoing_tasks):
             # Skip if this snapshot has already been processed
             logging.info("Skipping because the message with this snapshot is already (being) processed")
             return
