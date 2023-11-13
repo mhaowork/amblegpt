@@ -110,11 +110,11 @@ def prompt_gpt4(filename: str):
         "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
     )
 
-    print(response.json())
+    logging.info(response.json())
 
 
 def prompt_gpt4_with_video_frames(prompt, base64_frames):
-    print("prompting GPT-4v")
+    logging.info("prompting GPT-4v")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
@@ -152,26 +152,26 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
 
     if response.status_code == 200:
         # Create a temporary directory
-        # temp_dir = tempfile.TemporaryDirectory()
-        # clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
+        temp_dir = tempfile.TemporaryDirectory()
+        clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
 
-        clip_filename = "cache_video/" + f"clip_{event_id}.mp4"
+        # clip_filename = "cache_video/" + f"clip_{event_id}.mp4"
 
         with open(clip_filename, "wb") as f:
             f.write(response.content)
-        print(f"Video clip for event {event_id} saved as {clip_filename}.")
+        logging.info(f"Video clip for event {event_id} saved as {clip_filename}.")
 
         # After downloading, extract frames
         return extract_frames(clip_filename, gap_secs)
     else:
-        print(
+        logging.info(
             f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}"
         )
         return []
 
 
 def extract_frames(video_path, gap_secs):
-    print("Extrating frames from video")
+    logging.info("Extrating frames from video")
     reader = imageio.get_reader(video_path)
     fps = reader.get_meta_data()["fps"]
     frames = []
@@ -204,7 +204,7 @@ def extract_frames(video_path, gap_secs):
                 frame_bytes = output.getvalue()
             frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
     reader.close()
-    print(f"Got {len(frames)} frames from video")
+    logging.info(f"Got {len(frames)} frames from video")
     return frames
 
 
@@ -219,10 +219,9 @@ def process_message(payload):
             return
 
         response = prompt_gpt4_with_video_frames(PROMPT, video_base64_frames)
-        print("response.json()", response.json())
+        logging.info(f"GPT response {response.json()}")
         json_str = response.json()["choices"][0]["message"]["content"]
         result = json.loads(json_str)
-        print("summary", result["summary"])
 
         # Set the summary to the 'after' field
         payload["after"]["summary"] = "| GPT: " + result["summary"]
@@ -235,9 +234,9 @@ def process_message(payload):
         client = mqtt.Client()
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.publish(MQTT_TOPIC, updated_payload_json)
-        print("Published updated payload with summary back to MQTT topic.")
+        logging.info("Published updated payload with summary back to MQTT topic.")
     except Exception as e:
-        print(f"Error processing video for event {event_id}: {e}")
+        logging.info(f"Error processing video for event {event_id}: {e}")
     finally:
         # Cleanup: remove the task from the ongoing_tasks dict
         if event_id in ongoing_tasks:
@@ -246,7 +245,7 @@ def process_message(payload):
 
 # Define what to do when the client connects to the broker
 def on_connect(client, userdata, flags, rc):
-    print("Connected with result code " + str(rc))
+    logging.info("Connected with result code " + str(rc))
     client.subscribe(MQTT_TOPIC)  # Subscribe to the topic
 
 
@@ -259,17 +258,17 @@ def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
         if 'summary' in payload['after'] and payload['after']['summary']:
-            # Skip if this message has already been processed
-            print("Skipping message that has already been processed")
+            # Skip if this message has already been processed. To prevent echo loops
+            logging.info("Skipping message that has already been processed")
             return
         event_id = payload["after"]["id"]
-        print(f"Event ID from 'after': {event_id}")
+        logging.info(f"Event ID from 'after': {event_id}")
 
         # If there's an ongoing task for the same event, terminate it
         if event_id in ongoing_tasks:
             ongoing_tasks[event_id].terminate()
             ongoing_tasks[event_id].join()  # Wait for process to terminate
-            print(f"Terminated ongoing task for event {event_id}")
+            logging.info(f"Terminated ongoing task for event {event_id}")
 
         # Start a new task for the new message
         processing_task = Process(target=process_message, args=(payload,))
@@ -278,9 +277,9 @@ def on_message(client, userdata, msg):
 
 
     except json.JSONDecodeError as e:
-        print("Error decoding JSON:", e)
+        logging.info("Error decoding JSON:", e)
     except KeyError as e:
-        print(f"Key {e} not found in JSON payload")
+        logging.info(f"Key {e} not found in JSON payload")
 
 
 if __name__ == "__main__":
