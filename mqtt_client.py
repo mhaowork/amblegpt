@@ -261,6 +261,14 @@ def on_message(client, userdata, msg):
             # Skip if this message has already been processed. To prevent echo loops
             logging.info("Skipping message that has already been processed")
             return
+        if payload['before']['snapshot_time'] == payload['after']['snapshot_time'] and (payload['type'] != 'end'):
+            # Skip if this snapshot has already been processed
+            logging.info("Skipping because the message with this snapshot is already (being) processed")
+            return
+        if not payload['before']['has_clip']:
+            # Skip if this snapshot has already been processed
+            logging.info("Skipping because of no available video clip yet")
+            return
         event_id = payload["after"]["id"]
         logging.info(f"Event ID from 'after': {event_id}")
 
