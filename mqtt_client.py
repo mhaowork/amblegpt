@@ -9,13 +9,8 @@ import paho.mqtt.client as mqtt
 import io
 from PIL import Image
 import tempfile
-
 import logging
-
-
 from multiprocessing import Process, current_process
-import multiprocessing
-
 
 # Load environment variables from .env file
 load_dotenv()
