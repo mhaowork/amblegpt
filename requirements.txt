@@ -1,0 +1,6 @@
+paho-mqtt
+python-dotenv
+requests
+Pillow
+imageio
+imageio[ffmpeg]
