@@ -15,19 +15,19 @@ from multiprocessing import Process, current_process
 # Load environment variables from .env file
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format='%(processName)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
 
 ongoing_tasks = {}
 
 # Define the MQTT server settings
 MQTT_TOPIC = "frigate/events"
-MQTT_BROKER = os.getenv('MQTT_BROKER', '127.0.0.1')
-MQTT_PORT = int(os.getenv('MQTT_PORT', 1883))
+MQTT_BROKER = os.getenv("MQTT_BROKER", "127.0.0.1")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 
 
 # Define Frigate server details for thumbnail retrieval
-FRIGATE_SERVER_IP = os.getenv('FRIGATE_SERVER_IP', '127.0.0.1')
-FRIGATE_SERVER_PORT = int(os.getenv('FRIGATE_SERVER_PORT', 5000))
+FRIGATE_SERVER_IP = os.getenv("FRIGATE_SERVER_IP", "127.0.0.1")
+FRIGATE_SERVER_PORT = int(os.getenv("FRIGATE_SERVER_PORT", 5000))
 THUMBNAIL_ENDPOINT = "/api/events/{}/thumbnail.jpg"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
 
@@ -69,6 +69,7 @@ Some example SUMMARIES are
     GAP_SECS
 )
 
+
 def prompt_gpt4_with_video_frames(prompt, base64_frames):
     logging.info("prompting GPT-4v")
     headers = {
@@ -101,6 +102,44 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
     )
 
 
+def extract_frames(video_path, gap_secs):
+    logging.info("Extrating frames from video")
+    reader = imageio.get_reader(video_path)
+    fps = reader.get_meta_data()["fps"]
+    frames = []
+
+    for i, frame in enumerate(reader):
+        # Extract a frame every {gap_secs} seconds
+        if i % (int(gap_secs * fps)) == 0:
+            # Convert to PIL Image to resize
+            image = Image.fromarray(frame)
+
+            # Calculate the new size, maintaining the aspect ratio
+            ratio = min(500 / image.size[0], 500 / image.size[1])
+            new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+            # Resize the image
+            resized_image = image.resize(new_size, Image.Resampling.LANCZOS)
+
+            # Cache frames locally for debug
+            # Extract the video file name and create a directory for frames
+            video_name = pathlib.Path(video_path).stem
+            frames_dir = os.path.join("cache_video", video_name)
+            os.makedirs(frames_dir, exist_ok=True)
+            # Frame file name
+            frame_file = os.path.join(frames_dir, f"frame_{i}.jpg")
+            # Save the frame
+            resized_image.save(frame_file, "JPEG")
+
+            # Convert back to bytes
+            with io.BytesIO() as output:
+                resized_image.save(output, format="JPEG")
+                frame_bytes = output.getvalue()
+            frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
+    reader.close()
+    logging.info(f"Got {len(frames)} frames from video")
+    return frames
+
+
 # Function to download video clip and extract frames
 def download_video_clip_and_extract_frames(event_id, gap_secs):
     clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(event_id)}"
@@ -124,44 +163,6 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
             f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}"
         )
         return []
-
-
-def extract_frames(video_path, gap_secs):
-    logging.info("Extrating frames from video")
-    reader = imageio.get_reader(video_path)
-    fps = reader.get_meta_data()["fps"]
-    frames = []
-
-    for i, frame in enumerate(reader):
-        # Extract a frame every {gap_secs} seconds
-        if i % (int(gap_secs * fps)) == 0:
-            # Convert to PIL Image to resize
-            image = Image.fromarray(frame)
-
-            # Calculate the new size, maintaining the aspect ratio
-            ratio = min(500 / image.size[0], 500 / image.size[1])
-            new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
-            # Resize the image
-            resized_image = image.resize(new_size, Image.Resampling.LANCZOS)
-
-            # Cache frames locally for debug
-            # Extract the video file name and create a directory for frames
-            video_name = pathlib.Path(video_path).stem
-            frames_dir = os.path.join('cache_video', video_name)
-            os.makedirs(frames_dir, exist_ok=True)
-            # Frame file name
-            frame_file = os.path.join(frames_dir, f"frame_{i}.jpg")
-            # Save the frame
-            resized_image.save(frame_file, "JPEG")
-
-            # Convert back to bytes
-            with io.BytesIO() as output:
-                resized_image.save(output, format="JPEG")
-                frame_bytes = output.getvalue()
-            frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
-    reader.close()
-    logging.info(f"Got {len(frames)} frames from video")
-    return frames
 
 
 def process_message(payload):
@@ -213,15 +214,21 @@ def on_message(client, userdata, msg):
     event_id = None
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
-        if 'summary' in payload['after'] and payload['after']['summary']:
+        if "summary" in payload["after"] and payload["after"]["summary"]:
             # Skip if this message has already been processed. To prevent echo loops
             logging.info("Skipping message that has already been processed")
             return
-        if payload['before']['snapshot_time'] == payload['after']['snapshot_time'] and (payload['type'] != 'end') and (event_id in ongoing_tasks):
+        if (
+            payload["before"]["snapshot_time"] == payload["after"]["snapshot_time"]
+            and (payload["type"] != "end")
+            and (event_id in ongoing_tasks)
+        ):
             # Skip if this snapshot has already been processed
-            logging.info("Skipping because the message with this snapshot is already (being) processed")
+            logging.info(
+                "Skipping because the message with this snapshot is already (being) processed"
+            )
             return
-        if not payload['before']['has_clip']:
+        if not payload["before"]["has_clip"]:
             # Skip if this snapshot has already been processed
             logging.info("Skipping because of no available video clip yet")
             return
@@ -238,7 +245,6 @@ def on_message(client, userdata, msg):
         processing_task = Process(target=process_message, args=(payload,))
         processing_task.start()
         ongoing_tasks[event_id] = processing_task
-
 
     except json.JSONDecodeError:
         logging.exception("Error decoding JSON")
