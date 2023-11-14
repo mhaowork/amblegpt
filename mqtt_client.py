@@ -20,14 +20,14 @@ logging.basicConfig(level=logging.INFO, format='%(processName)s: %(message)s')
 ongoing_tasks = {}
 
 # Define the MQTT server settings
-MQTT_BROKER = "100.116.240.70"
-MQTT_PORT = 1883
 MQTT_TOPIC = "frigate/events"
+MQTT_BROKER = os.getenv('MQTT_BROKER', 'default_mqtt_broker_ip')
+MQTT_PORT = int(os.getenv('MQTT_PORT', 1883))
 
 
 # Define Frigate server details for thumbnail retrieval
-FRIGATE_SERVER_IP = "100.116.240.70"
-FRIGATE_SERVER_PORT = 5000
+FRIGATE_SERVER_IP = os.getenv('FRIGATE_SERVER_IP', '127.0.0.1')
+FRIGATE_SERVER_PORT = int(os.getenv('FRIGATE_SERVER_PORT', 5000))
 THUMBNAIL_ENDPOINT = "/api/events/{}/thumbnail.jpg"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
 
