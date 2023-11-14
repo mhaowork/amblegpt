@@ -159,7 +159,7 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
         # After downloading, extract frames
         return extract_frames(clip_filename, gap_secs)
     else:
-        logging.info(
+        logging.error(
             f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}"
         )
         return []
@@ -230,8 +230,8 @@ def process_message(payload):
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.publish(MQTT_TOPIC, updated_payload_json)
         logging.info("Published updated payload with summary back to MQTT topic.")
-    except Exception as e:
-        logging.info(f"Error processing video for event {event_id}: {e}")
+    except Exception:
+        logging.exception(f"Error processing video for event {event_id}")
     finally:
         # Cleanup: remove the task from the ongoing_tasks dict
         if event_id in ongoing_tasks:
@@ -265,7 +265,7 @@ def on_message(client, userdata, msg):
             logging.info("Skipping because of no available video clip yet")
             return
         event_id = payload["after"]["id"]
-        logging.info(f"Event ID from 'after': {event_id}")
+        logging.info(f"Event ID: {event_id}")
 
         # If there's an ongoing task for the same event, terminate it
         if event_id in ongoing_tasks:
@@ -279,10 +279,10 @@ def on_message(client, userdata, msg):
         ongoing_tasks[event_id] = processing_task
 
 
-    except json.JSONDecodeError as e:
-        logging.info("Error decoding JSON:", e)
-    except KeyError as e:
-        logging.info(f"Key {e} not found in JSON payload")
+    except json.JSONDecodeError:
+        logging.exception("Error decoding JSON")
+    except KeyError:
+        logging.exception("Key not found in JSON payload")
 
 
 if __name__ == "__main__":
