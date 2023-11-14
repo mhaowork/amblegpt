@@ -21,7 +21,7 @@ ongoing_tasks = {}
 
 # Define the MQTT server settings
 MQTT_TOPIC = "frigate/events"
-MQTT_BROKER = os.getenv('MQTT_BROKER', 'default_mqtt_broker_ip')
+MQTT_BROKER = os.getenv('MQTT_BROKER', '127.0.0.1')
 MQTT_PORT = int(os.getenv('MQTT_PORT', 1883))
 
 
@@ -112,7 +112,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
     logging.info("prompting GPT-4v")
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
     }
     PROMPT_MESSAGES = [
         {
