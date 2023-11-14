@@ -69,45 +69,6 @@ Some example SUMMARIES are
     GAP_SECS
 )
 
-
-def prompt_gpt4(filename: str):
-    prompt = "Please describe this image as if you are a security guard responsible for protecting a high-value vehicle. \
-    You're reviewing an image from a security camera mounted outside on one side of the vehicle's roof rack. \
-    Describe any potential security threats or suspicious activities you observe in the image.\
-    "
-    # Getting the base64 string
-    with open(filename, "rb") as image_file:
-        base64_image = base64.b64encode(image_file.read()).decode("utf-8")
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
-    }
-
-    payload = {
-        "model": "gpt-4-vision-preview",
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                    },
-                ],
-            }
-        ],
-        "max_tokens": 300,
-    }
-
-    response = requests.post(
-        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
-    )
-
-    logging.info(response.json())
-
-
 def prompt_gpt4_with_video_frames(prompt, base64_frames):
     logging.info("prompting GPT-4v")
     headers = {
