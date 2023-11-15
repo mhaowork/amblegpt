@@ -20,7 +20,8 @@ logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
 ongoing_tasks = {}
 
 # Define the MQTT server settings
-MQTT_TOPIC = "frigate/events"
+MQTT_FRIGATE_TOPIC = "frigate/events"
+MQTT_SUMMARY_TOPIC = "frigate/events/summary"
 MQTT_BROKER = os.getenv("MQTT_BROKER", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 
@@ -190,7 +191,7 @@ def process_message(payload):
         # Create a new MQTT client
         client = mqtt.Client()
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        client.publish(MQTT_TOPIC, updated_payload_json)
+        client.publish(MQTT_SUMMARY_TOPIC, updated_payload_json)
         logging.info("Published updated payload with summary back to MQTT topic.")
     except Exception:
         logging.exception(f"Error processing video for event {event_id}")
@@ -203,7 +204,7 @@ def process_message(payload):
 # Define what to do when the client connects to the broker
 def on_connect(client, userdata, flags, rc):
     logging.info("Connected with result code " + str(rc))
-    client.subscribe(MQTT_TOPIC)  # Subscribe to the topic
+    client.subscribe(MQTT_FRIGATE_TOPIC)  # Subscribe to the topic
 
 
 # Define what to do when a message is received
