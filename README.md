@@ -9,7 +9,7 @@ AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip us
 
 ## Demo
 
-![Notification: A person crossing street](notif_person_crossing_street.jpg)
+![Notification: A person crossing street](assets/notif_person_crossing_street.jpg)
 
 
 More examples:
@@ -17,7 +17,8 @@ Video:
 
 | Video        | GPT Summary    |       
 | ------------- |:-------------:|
-| https://user-images.githubusercontent.com/58986949/115314310-805b2780-a1a7-11eb-8558-648a367ea231.mp4      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
+| ![](https://github.com/mhaowork/amblegpt/blob/main/assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
+
 
 
 
