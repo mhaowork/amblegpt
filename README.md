@@ -12,13 +12,12 @@ AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip us
 ![Notification: Two people crossing street](assets/notif_person_on_street.jpeg)
 
 
-More examples:
-Video:
+More video examples:
 
 | Video        | GPT Summary    |       
 | ------------- |:-------------:|
 | ![](assets/two_persons_walking_street.gif)         | A male and a female, appearing to be in their 30s, are seen crossing the street from the left to the right. They walk side by side and are visible for a total of 18 seconds.|
-| ![](https://github.com/mhaowork/amblegpt/blob/main/assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
+| ![](assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
 
 
 
@@ -48,7 +47,7 @@ OpenAI charges by tokens, which in this case are pixels. This project resizes th
 ## Installationo
 
 ### Preparation
-0. AmbleGPT utilizes the OpenAI API, and you will need to configure it with your own OpenAI API key. See the OpenAI API cost section (#TODO) to understand the financial implications.
+0. AmbleGPT utilizes the OpenAI API, and you will need to configure it with your own OpenAI API key which will cost a bit money. For example, it costs 0.01 USD to process a video clip around 30s currently, assuming sampling frames every 3 seconds resulting in 10 frames.
 
 1. Clone this repository and create your `.env` file for configurations in the folder. You can copy the existing example file like below:
     ```shell
@@ -77,4 +76,6 @@ Alternatively, you can simply install deps in `requirements.txt` and run `mqtt_c
 
 ### Frigate Notifications via Home Assistant Blueprint
 
-#TODO Add blueprint notif instructions
+Import this Blueprint: https://github.com/mhaowork/HA_blueprints/tree/main
+
+If you already have SgtBatten/HA_blueprints, you will need to manually edit its YAML in Home Assistant following [this guide](https://www.home-assistant.io/docs/automation/using_blueprints/#keeping-blueprints-up-to-date) and  copy [this file](https://github.com/mhaowork/HA_blueprints/blob/main/Frigate%20Camera%20Notifications/Stable) over. This new file adds a subscriptoin to AmbleGPT's MQTT messages and inserts GPT generated summaries in notifications.
