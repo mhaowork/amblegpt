@@ -9,7 +9,7 @@ AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip us
 
 ## Demo
 
-![Notification: A person crossing street](assets/notif_person_crossing_street.jpg)
+![Notification: Two people crossing street](assets/notif_person_on_street.jpeg)
 
 
 More examples:
@@ -17,8 +17,8 @@ Video:
 
 | Video        | GPT Summary    |       
 | ------------- |:-------------:|
+| ![](assets/two_persons_walking_street.gif)         | A male and a female, appearing to be in their 30s, are seen crossing the street from the left to the right. They walk side by side and are visible for a total of 18 seconds.|
 | ![](https://github.com/mhaowork/amblegpt/blob/main/assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
-
 
 
 
@@ -29,12 +29,6 @@ You will be able to update the prompt to fit your specific needs – simply ask 
 
 For example, the default prompt (#TODO add link to prompt) attempts to estimate the number of humans detected, as well as their age, height, and gender.
 
-
-video_file_two_persons_walking_street
-```
-A male and a female, appearing to be in their 30s, are seen crossing the street from the left to the right. They walk side by side and are visible for a total of 18 seconds."
-
-```
 
 **Image Compression to Reduce API Cost**
 
