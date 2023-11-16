@@ -26,7 +26,7 @@ More video examples:
 **Configurable Prompts**
 You will be able to update the prompt to fit your specific needs – simply ask the analyst using natural language!
 
-For example, the default prompt (#TODO add link to prompt) attempts to estimate the number of humans detected, as well as their age, height, and gender.
+For example, the [default prompt](https://github.com/mhaowork/amblegpt/blob/main/mqtt_client.py#L39-L71) attempts to estimate the number of humans detected, as well as their age, height, and gender.
 
 
 **Image Compression to Reduce API Cost**
@@ -44,7 +44,7 @@ OpenAI charges by tokens, which in this case are pixels. This project resizes th
 
 
 
-## Installationo
+## Installation
 
 ### Preparation
 0. AmbleGPT utilizes the OpenAI API, and you will need to configure it with your own OpenAI API key which will cost a bit money. For example, it costs 0.01 USD to process a video clip around 30s currently, assuming sampling frames every 3 seconds resulting in 10 frames.
@@ -57,7 +57,7 @@ OpenAI charges by tokens, which in this case are pixels. This project resizes th
 
 ### Run AmbleGPT
 Docker or Docker Compose is recommended.
-
+s
 
 * Docker
     ```shell
@@ -78,4 +78,9 @@ Alternatively, you can simply install deps in `requirements.txt` and run `mqtt_c
 
 Import this Blueprint: https://github.com/mhaowork/HA_blueprints/tree/main
 
-If you already have SgtBatten/HA_blueprints, you will need to manually edit its YAML in Home Assistant following [this guide](https://www.home-assistant.io/docs/automation/using_blueprints/#keeping-blueprints-up-to-date) and  copy [this file](https://github.com/mhaowork/HA_blueprints/blob/main/Frigate%20Camera%20Notifications/Stable) over. This new file adds a subscriptoin to AmbleGPT's MQTT messages and inserts GPT generated summaries in notifications.
+If you already have SgtBatten/HA_blueprints, you will need to manually edit its YAML in Home Assistant following [this guide](https://www.home-assistant.io/docs/automation/using_blueprints/#keeping-blueprints-up-to-date) and  copy [this file](https://github.com/mhaowork/HA_blueprints/blob/main/Frigate%20Camera%20Notifications/Stable) over. This new file contains a new subscriptoin to AmbleGPT's MQTT messages and inserts GPT generated summaries in notifications.
+
+
+## Future Work
+1. Allow easier prompt customization
+2. Further reduce tokens required to process a clip
