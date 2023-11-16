@@ -23,19 +23,6 @@ More video examples:
 | ![](assets/usps_delivery_480p.gif)      | A postal worker (in a blue uniform) was seen exiting a delivery vehicle and walking off-screen, presumably to deliver mail or a package. |
 
 
-## Features
-
-**Configurable Prompts**
-You will be able to update the prompt to fit your specific needs – simply ask the analyst using natural language!
-
-For example, the [default prompt](https://github.com/mhaowork/amblegpt/blob/main/mqtt_client.py#L39-L71) attempts to estimate the number of humans detected, as well as their age, height, and gender.
-
-
-**Image Compression to Reduce API Cost**
-
-OpenAI charges by tokens, which in this case are pixels. This project resizes the footage to help you save on API costs.
-
-
 ## Prerequisites 
 
 * Frigate https://github.com/blakeblackshear/frigate
