@@ -85,7 +85,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
                 *map(
                     lambda frame: {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{frame}"},
+                        "image_url": {"url": f"data:image/jpeg;base64,{frame}", "detail": "low"},
                     },
                     base64_frames,
                 ),
@@ -116,7 +116,7 @@ def extract_frames(video_path, gap_secs):
             image = Image.fromarray(frame)
 
             # Calculate the new size, maintaining the aspect ratio
-            ratio = min(500 / image.size[0], 500 / image.size[1])
+            ratio = min(480 / image.size[0], 480 / image.size[1])
             new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
             # Resize the image
             resized_image = image.resize(new_size, Image.Resampling.LANCZOS)
