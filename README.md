@@ -53,6 +53,7 @@ AmbleGPT utilizes the OpenAI API, and you will need to configure it with your ow
 ### Run AmbleGPT
 Docker is recommended.
 
+Remember to change YOUR_OPENAI_API_KEY, YOUR_OPENAI_API_KEY and YOUR_OPENAI_API_KEY in the command below.
 ```shell
 docker run -d --name amblegpt \
     --restart unless-stopped \
