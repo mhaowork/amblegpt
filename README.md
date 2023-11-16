@@ -6,6 +6,8 @@ Video surveilance footage analyst powered by GPT-4 Vision.
 
 AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip using the OpenAI GPT-4 Vision API. It returns an easy-to-understand, context-rich summary. AmbleGPT then publishes this summary text in an MQTT message. The message can be received by the Home Assistant Frigate Notification Automation and sent to a user via iOS/Android notifications.
 
+**⚠️ Warning: this repo is under active development. Please expect bugs and imperfections. You're welcome to submit issues.**
+
 
 ## Demo
 
@@ -18,7 +20,7 @@ More video examples:
 | ------------- |:-------------:|
 | ![](assets/two_persons_walking_street.gif)         | A male and a female, appearing to be in their 30s, are seen crossing the street from the left to the right. They walk side by side and are visible for a total of 18 seconds.|
 | ![](assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
-
+| ![](assets/usps_delivery_480p.gif)      | A postal worker (in a blue uniform) was seen exiting a delivery vehicle and walking off-screen, presumably to deliver mail or a package. |
 
 
 ## Features
@@ -48,7 +50,9 @@ OpenAI charges by tokens, which in this case are pixels. This project resizes th
 
 ### Preparation
 
-AmbleGPT utilizes the OpenAI API, and you will need to configure it with your own OpenAI API key which will cost a bit money. For example, it costs 0.01 USD to process a video clip around 30s currently, assuming sampling frames every 3 seconds resulting in 10 frames.
+AmbleGPT requires the OpenAI API currently, and you'll need to set it up using your own OpenAI API key, which incurs some cost. For example, to process a 30-second video clip, with a sampling rate of one frame every 3 seconds, yielding 10 frames in total, the cost is 0.01 USD as of today 2023-11-16.
+
+The tutorial of getting your OpenAI API key can be found [here](https://www.howtogeek.com/885918/how-to-get-an-openai-api-key/).
 
 ### Run AmbleGPT
 Docker is recommended.
@@ -84,4 +88,5 @@ Note, the processing time for each video clip, which includes decoding and proce
 
 ## Future Work
 1. Allow easier prompt customization
-2. Further reduce tokens required to process a clip
+2. Further reduce # of tokens required to process a clip
+3. Custom prompts per camera to allow GPT to understand the angle and context of each camera.
