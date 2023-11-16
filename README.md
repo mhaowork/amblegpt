@@ -61,7 +61,7 @@ Remember to change YOUR_OPENAI_API_KEY, YOUR_OPENAI_API_KEY and YOUR_OPENAI_API_
 ```shell
 docker run -d --name amblegpt \
     --restart unless-stopped \
-    -e OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+    -e OPENAI_API_KEY="YOUR_OPENAI_API_KEY" \
     -e FRIGATE_SERVER_IP="YOUR_FRIGATE_IP" \
     -e FRIGATE_SERVER_PORT="5000" \
     -e MQTT_BROKER="YOUR_MQTT_BROKER_IP" \
