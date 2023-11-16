@@ -71,7 +71,7 @@ Some example SUMMARIES are
 )
 
 
-def prompt_gpt4_with_video_frames(prompt, base64_frames):
+def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     logging.info("prompting GPT-4v")
     headers = {
         "Content-Type": "application/json",
@@ -85,7 +85,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames):
                 *map(
                     lambda frame: {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{frame}", "detail": "low"},
+                        "image_url": {"url": f"data:image/jpeg;base64,{frame}", "detail": "low" if low_detail else "high"},
                     },
                     base64_frames,
                 ),
