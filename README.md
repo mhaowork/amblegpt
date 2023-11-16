@@ -47,30 +47,24 @@ OpenAI charges by tokens, which in this case are pixels. This project resizes th
 ## Installation
 
 ### Preparation
-0. AmbleGPT utilizes the OpenAI API, and you will need to configure it with your own OpenAI API key which will cost a bit money. For example, it costs 0.01 USD to process a video clip around 30s currently, assuming sampling frames every 3 seconds resulting in 10 frames.
 
-1. Clone this repository and create your `.env` file for configurations in the folder. You can copy the existing example file like below:
-    ```shell
-    cp .env.example .env
-    ```
-    In this file, you will need to set your OpenAI API key and specify Frigate and MQTT IP addresses and ports (if not using the default values).
+AmbleGPT utilizes the OpenAI API, and you will need to configure it with your own OpenAI API key which will cost a bit money. For example, it costs 0.01 USD to process a video clip around 30s currently, assuming sampling frames every 3 seconds resulting in 10 frames.
 
 ### Run AmbleGPT
-Docker or Docker Compose is recommended.
-s
+Docker is recommended.
 
-* Docker
-    ```shell
-    docker run -d -p 1883:1883 #TODO add docker image #skrashevich/double-take:latest
-    ```
+```shell
+docker run -d --name amblegpt \
+    --restart unless-stopped \
+    -e OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+    -e FRIGATE_SERVER_IP="YOUR_FRIGATE_IP" \
+    -e FRIGATE_SERVER_PORT="5000" \
+    -e MQTT_BROKER="YOUR_MQTT_BROKER_IP" \
+    -e MQTT_PORT="1883" \
+    mhaowork/amblegpt
+```
 
-* Docker Compose
-    ```shell
-    docker-compose up -d
-    ```
-
-
-Alternatively, you can simply install deps in `requirements.txt` and run `mqtt_client.py`.
+Alternatively, you can simply install deps in `requirements.txt`, set `.env` and run `mqtt_client.py`.
 
 
 
@@ -79,6 +73,12 @@ Alternatively, you can simply install deps in `requirements.txt` and run `mqtt_c
 Import this Blueprint: https://github.com/mhaowork/HA_blueprints/tree/main
 
 If you already have SgtBatten/HA_blueprints, you will need to manually edit its YAML in Home Assistant following [this guide](https://www.home-assistant.io/docs/automation/using_blueprints/#keeping-blueprints-up-to-date) and  copy [this file](https://github.com/mhaowork/HA_blueprints/blob/main/Frigate%20Camera%20Notifications/Stable) over. This new file contains a new subscriptoin to AmbleGPT's MQTT messages and inserts GPT generated summaries in notifications.
+
+
+**That's it for the installation!**
+
+Note, the processing time for each video clip, which includes decoding and processing, varies based on the CPU speed of your host machine and OpenAI API round-trip time. So in reality, you will see one notification first which includes the usual static message like "Person Detected - Front camera". Then after a delay, the notification text will update automatically to show the AmbleGPT summary.
+
 
 
 ## Future Work
