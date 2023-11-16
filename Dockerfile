@@ -9,11 +9,12 @@ COPY mqtt_client.py /app
 COPY requirements.txt /app
 
 # Install any needed packages specified in requirements.txt
+RUN pip install --upgrade pip
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc python3-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install psutil\
+    && pip install psutil \
     && apt-get purge -y --auto-remove gcc python3-dev
 
 RUN pip install --no-cache-dir -r requirements.txt

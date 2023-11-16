@@ -66,7 +66,7 @@ docker run -d --name amblegpt \
     -e FRIGATE_SERVER_PORT="5000" \
     -e MQTT_BROKER="YOUR_MQTT_BROKER_IP" \
     -e MQTT_PORT="1883" \
-    mhaowork/amblegpt
+    ghcr.io/mhaowork/amblegpt
 ```
 
 Alternatively, you can simply install deps in `requirements.txt`, set `.env` and run `mqtt_client.py`.
