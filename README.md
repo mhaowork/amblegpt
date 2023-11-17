@@ -43,22 +43,31 @@ The tutorial of getting your OpenAI API key can be found [here](https://www.howt
 
 
 ### Configuration
-You will need to supply your own `config.yml` file.
-
-You can copy the existing `config.yml.example` as a starting point and update necessary values.
+Set your API key as an environment variable
 ```shell
-cp config.yml.example config.yml
+export OPENAI_API_KEY=YOUR_KEY_HERE
+```
+
+Create `config.yml` with the following values. Remember to change `YOUR_FRIGATE_IP` and `YOUR_FRIGATE_IP`.
+```yaml
+frigate_server_ip: YOUR_FRIGATE_IP
+frigate_server_port: 5000
+mqtt_broker: YOUR_MQTT_BROKER_IP
+mqtt_port: 1883
+# prompt: >
+#   If necessary, uncomment this and use your prompt here
+#   The default prompt can be found in mqtt_client.py
 ```
 
 ### Run AmbleGPT
 Docker is recommended.
 
-Remember to change YOUR_OPENAI_API_KEY in the command below.
+Make sure to change `/path/to/your/config.yml` and `YOUR_OPENAI_API_KEY` in the command below.
 ```shell
 docker run -d --name amblegpt \
     --restart unless-stopped \
+    -e OPENAI_API_KEY="$OPENAI_API_KEY" \
     -v /path/to/your/config.yml:/app/config.yml \
-    -e OPENAI_API_KEY="YOUR_OPENAI_API_KEY" \
     ghcr.io/mhaowork/amblegpt
 ```
 
