@@ -1,5 +1,7 @@
 cache_video
 
+config.yml
+
 .DS_STORE
 
 # Byte-compiled / optimized / DLL files
