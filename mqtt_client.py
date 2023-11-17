@@ -68,6 +68,7 @@ Some example SUMMARIES are
 
 PROMPT = config.get("prompt", DEFAULT_PROMPT).format(GAP_SECS=GAP_SECS)
 
+
 def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     logging.info("prompting GPT-4v")
     headers = {
@@ -82,7 +83,10 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
                 *map(
                     lambda frame: {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{frame}", "detail": "low" if low_detail else "high"},
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{frame}",
+                            "detail": "low" if low_detail else "high",
+                        },
                     },
                     base64_frames,
                 ),
