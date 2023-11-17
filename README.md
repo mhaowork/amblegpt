@@ -57,7 +57,7 @@ Remember to change YOUR_OPENAI_API_KEY in the command below.
 ```shell
 docker run -d --name amblegpt \
     --restart unless-stopped \
-    -v /path/to/your/config.yml:/app/config.yml
+    -v /path/to/your/config.yml:/app/config.yml \
     -e OPENAI_API_KEY="YOUR_OPENAI_API_KEY" \
     ghcr.io/mhaowork/amblegpt
 ```
