@@ -31,6 +31,8 @@ More video examples:
 * Frigate <> Home Assistant Integration: https://docs.frigate.video/integrations/home-assistant
   * To receive notifications which contain the AmbleGPT generated event analysis.
 
+* MQTT Broker
+  * You may already have one when setting up Frigate.
 
 
 ## Installation
