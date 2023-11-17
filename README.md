@@ -35,6 +35,11 @@ More video examples:
   * You may already have one when setting up Frigate.
 
 
+## Supported Platforms
+
+* amd64
+* arm64
+
 ## Installation
 
 ### Preparation
@@ -66,7 +71,7 @@ Docker is recommended.
 
 Make sure to change `/path/to/your/config.yml` and `YOUR_OPENAI_API_KEY` in the command below.
 ```shell
-docker run -d --name amblegpt \
+docker run --detach --name amblegpt \
     --restart unless-stopped \
     -e OPENAI_API_KEY="$OPENAI_API_KEY" \
     -v /path/to/your/config.yml:/app/config.yml \
