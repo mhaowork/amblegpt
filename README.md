@@ -41,18 +41,24 @@ AmbleGPT requires the OpenAI API currently, and you'll need to set it up using y
 
 The tutorial of getting your OpenAI API key can be found [here](https://www.howtogeek.com/885918/how-to-get-an-openai-api-key/).
 
+
+### Configuration
+You will need to supply your own `config.yml` file.
+
+You can copy the existing `config.yml.example` as a starting point and update necessary values.
+```shell
+cp config.yml.example config.yml
+```
+
 ### Run AmbleGPT
 Docker is recommended.
 
-Remember to change YOUR_OPENAI_API_KEY, YOUR_OPENAI_API_KEY and YOUR_OPENAI_API_KEY in the command below.
+Remember to change YOUR_OPENAI_API_KEY in the command below.
 ```shell
 docker run -d --name amblegpt \
     --restart unless-stopped \
+    -v /path/to/your/config.yml:/app/config.yml
     -e OPENAI_API_KEY="YOUR_OPENAI_API_KEY" \
-    -e FRIGATE_SERVER_IP="YOUR_FRIGATE_IP" \
-    -e FRIGATE_SERVER_PORT="5000" \
-    -e MQTT_BROKER="YOUR_MQTT_BROKER_IP" \
-    -e MQTT_PORT="1883" \
     ghcr.io/mhaowork/amblegpt
 ```
 

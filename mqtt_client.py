@@ -2,7 +2,6 @@ import base64
 import pathlib
 import imageio
 import os
-from dotenv import load_dotenv
 import json
 import requests
 import paho.mqtt.client as mqtt
@@ -10,54 +9,53 @@ import io
 from PIL import Image
 import tempfile
 import logging
-from multiprocessing import Process, current_process
-
-# Load environment variables from .env file
-load_dotenv()
+from multiprocessing import Process
+import yaml
 
 logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
 
 ongoing_tasks = {}
 
+config = yaml.safe_load(open("config.yml", "r"))
+
 # Define the MQTT server settings
 MQTT_FRIGATE_TOPIC = "frigate/events"
 MQTT_SUMMARY_TOPIC = "frigate/events/summary"
-MQTT_BROKER = os.getenv("MQTT_BROKER", "127.0.0.1")
-MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-
+MQTT_BROKER = config["mqtt_broker"]
+MQTT_PORT = config.get("mqtt_port", 1883)
 
 # Define Frigate server details for thumbnail retrieval
-FRIGATE_SERVER_IP = os.getenv("FRIGATE_SERVER_IP", "127.0.0.1")
-FRIGATE_SERVER_PORT = int(os.getenv("FRIGATE_SERVER_PORT", 5000))
+FRIGATE_SERVER_IP = config["frigate_server_ip"]
+FRIGATE_SERVER_PORT = config.get("frigate_server_port", 5000)
 THUMBNAIL_ENDPOINT = "/api/events/{}/thumbnail.jpg"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
 
 # Video frame sampling settings
 GAP_SECS = 3
 
-# GPT configs
-PROMPT = """
+# GPT config
+DEFAULT_PROMPT = """
 You're a helpful assistant helping to label a video for machine learning training
-You are reviewing some continuous frames of a video footage. Frames are %d second(s) apart from each other in the chronological order…
+You are reviewing some continuous frames of a video footage. Frames are {GAP_SECS} second(s) apart from each other in the chronological order…
 Please describe what happend in the video in json format. Do not print any markdown syntax!
 Answer like the following:
-{
+{{
     num_persons : 2,
     persons : [
-    { 
+    {{
         height_in_meters: 1.75,
         duration_of_stay_in_seconds: 15,
         gender: "female",
         age: 50
-    },
-    {
+    }},
+    {{
         height_in_meters: 1.60,
         duration_of_stay_in_seconds: 15,
         gender: "unknown",
         age: 36
-    },
+    }},
     summary: SUMMARY
-}
+}}
 
 You can guess their height and gender . It is 100 percent fine to be inaccurate.
 You can measure their duration of stay given the time gap between frames.
@@ -66,10 +64,9 @@ Some example SUMMARIES are
     2. One Amazon delivery person (in blue vest) dropped off a package
     3. A female is waiting, facing the door
     4. A person is wandering without obvious purpose
-""" % (
-    GAP_SECS
-)
+"""
 
+PROMPT = config.get("prompt", DEFAULT_PROMPT).format(GAP_SECS=GAP_SECS)
 
 def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     logging.info("prompting GPT-4v")
