@@ -18,10 +18,11 @@ More video examples:
 
 | Video        | GPT Summary    |       
 | ------------- |:-------------:|
-| ![](assets/two_persons_walking_street.gif)         | A male and a female, appearing to be in their 30s, are seen crossing the street from the left to the right. They walk side by side and are visible for a total of 18 seconds.|
+| ![](assets/ups_delivery.gif)      | A delivery man, approximately 35 years old, approached the door and placed a package down. He briefly interacted with a mobile device before leaving the scene. |
 | ![](assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
 | ![](assets/usps_delivery_480p.gif)      | A postal worker (in a blue uniform) was seen exiting a delivery vehicle and walking off-screen, presumably to deliver mail or a package. |
-| ![](assets/ups_delivery.gif)      | A delivery man, approximately 35 years old, approached the door and placed a package down. He briefly interacted with a mobile device before leaving the scene. |
+| ![](assets/two_persons_walking_street.gif)         | A male and a female, appearing to be in their 30s, are seen crossing the street from the left to the right. They walk side by side and are visible for a total of 18 seconds.|
+
 
 ## Prerequisites 
 
