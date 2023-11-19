@@ -96,6 +96,6 @@ Note, the processing time for each video clip, which includes decoding and proce
 
 
 ## Future Work
-1. Allow easier prompt customization
+1. ~Allow easier prompt customization~
 2. Further reduce # of tokens required to process a clip
 3. Custom prompts per camera to allow GPT to understand the angle and context of each camera.
