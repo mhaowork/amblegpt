@@ -191,8 +191,8 @@ def process_message(payload):
         if len(video_base64_frames) == 0:
             return
 
-        local_time_ts  = get_local_time_str(ts=payload["after"]["start_time"])
-        prompt = generate_prompt(GAP_SECS, local_time_ts)
+        local_time_str  = get_local_time_str(ts=payload["after"]["start_time"])
+        prompt = generate_prompt(GAP_SECS, local_time_str)
         response = prompt_gpt4_with_video_frames(prompt, video_base64_frames)
         logging.info(f"GPT response {response.json()}")
         json_str = response.json()["choices"][0]["message"]["content"]
