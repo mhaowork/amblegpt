@@ -11,6 +11,7 @@ import tempfile
 import logging
 from multiprocessing import Process
 import yaml
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
 
@@ -36,7 +37,7 @@ GAP_SECS = 3
 # GPT config
 DEFAULT_PROMPT = """
 You're a helpful assistant helping to label a video for machine learning training
-You are reviewing some continuous frames of a video footage. Frames are {GAP_SECS} second(s) apart from each other in the chronological order…
+You are reviewing some continuous frames of a video footage as of {EVENT_START_TIME}. Frames are {GAP_SECS} second(s) apart from each other in the chronological order…
 Please describe what happend in the video in json format. Do not print any markdown syntax!
 Answer like the following:
 {{
@@ -58,15 +59,28 @@ Answer like the following:
 }}
 
 You can guess their height and gender . It is 100 percent fine to be inaccurate.
-You can measure their duration of stay given the time gap between frames.
+
+You can measure their duration of stay given the time gap between frames. You should take the time of event into account.
+For example, if someone is trying to open the door in the middle of the night, it would be suspicious. Be sure to mention it in the SUMMARY.
+
 Some example SUMMARIES are
     1. One person walked by towards right corner with her dog without paying attention towards the camera's direction.
-    2. One Amazon delivery person (in blue vest) dropped off a package
-    3. A female is waiting, facing the door
-    4. A person is wandering without obvious purpose
+    2. One Amazon delivery person (in blue vest) dropped off a package.
+    3. A female is waiting, facing the door.
+    4. A person is wandering without obvious purpose in the middle of the night, which seems suspicious.
+    5. A person took off with a package from the front door. Be aware!
 """
 
-PROMPT = config.get("prompt", DEFAULT_PROMPT).format(GAP_SECS=GAP_SECS)
+PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
+
+def generate_prompt(gap_secs, event_start_time):
+    return PROMPT_TEMPLATE.format(GAP_SECS=GAP_SECS, EVENT_START_TIME=event_start_time)
+
+
+def get_local_time_str(ts: float):
+    # convert the timestamp to a datetime object in the local timezone
+    dt_object = datetime.fromtimestamp(ts)
+    return dt_object.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
@@ -177,7 +191,9 @@ def process_message(payload):
         if len(video_base64_frames) == 0:
             return
 
-        response = prompt_gpt4_with_video_frames(PROMPT, video_base64_frames)
+        local_time_ts  = get_local_time_str(ts=payload["after"]["start_time"])
+        prompt = generate_prompt(GAP_SECS, local_time_ts)
+        response = prompt_gpt4_with_video_frames(prompt, video_base64_frames)
         logging.info(f"GPT response {response.json()}")
         json_str = response.json()["choices"][0]["message"]["content"]
         result = json.loads(json_str)
