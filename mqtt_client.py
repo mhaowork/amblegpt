@@ -79,7 +79,7 @@ Some example SUMMARIES are
 PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
 
 def generate_prompt(gap_secs, event_start_time):
-    return PROMPT_TEMPLATE.format(GAP_SECS=GAP_SECS, EVENT_START_TIME=event_start_time)
+    return PROMPT_TEMPLATE.format(GAP_SECS=gap_secs, EVENT_START_TIME=event_start_time)
 
 
 def get_local_time_str(ts: float):
