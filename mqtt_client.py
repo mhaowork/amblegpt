@@ -60,15 +60,20 @@ Answer like the following:
 
 You can guess their height and gender . It is 100 percent fine to be inaccurate.
 
-You can measure their duration of stay given the time gap between frames. You should take the time of event into account.
+You can measure their duration of stay given the time gap between frames.
+
+You should take the time of event into account.
 For example, if someone is trying to open the door in the middle of the night, it would be suspicious. Be sure to mention it in the SUMMARY.
+
+Mostly importantly, be sure to mention any unusualness considering all the context.
 
 Some example SUMMARIES are
     1. One person walked by towards right corner with her dog without paying attention towards the camera's direction.
     2. One Amazon delivery person (in blue vest) dropped off a package.
     3. A female is waiting, facing the door.
     4. A person is wandering without obvious purpose in the middle of the night, which seems suspicious.
-    5. A person took off with a package from the front door. Be aware!
+    5. A person walked into the frame from outside, picked up a package, and left.
+       The person didn't wear any uniform so this doesn't look like a routine package pickup. Be aware of potential package theft!
 """
 
 PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
