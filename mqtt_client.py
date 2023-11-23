@@ -24,6 +24,8 @@ MQTT_FRIGATE_TOPIC = "frigate/events"
 MQTT_SUMMARY_TOPIC = "frigate/events/summary"
 MQTT_BROKER = config["mqtt_broker"]
 MQTT_PORT = config.get("mqtt_port", 1883)
+MQTT_USERNAME = config.get("mqtt_username", "")
+MQTT_PASSWORD = config.get("mqtt_password", "")
 
 # Define Frigate server details for thumbnail retrieval
 FRIGATE_SERVER_IP = config["frigate_server_ip"]
@@ -77,6 +79,7 @@ Some example SUMMARIES are
 """
 
 PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
+
 
 def generate_prompt(gap_secs, event_start_time):
     return PROMPT_TEMPLATE.format(GAP_SECS=gap_secs, EVENT_START_TIME=event_start_time)
@@ -196,7 +199,7 @@ def process_message(payload):
         if len(video_base64_frames) == 0:
             return
 
-        local_time_str  = get_local_time_str(ts=payload["after"]["start_time"])
+        local_time_str = get_local_time_str(ts=payload["after"]["start_time"])
         prompt = generate_prompt(GAP_SECS, local_time_str)
         response = prompt_gpt4_with_video_frames(prompt, video_base64_frames)
         logging.info(f"GPT response {response.json()}")
@@ -212,6 +215,9 @@ def process_message(payload):
         # Publish the updated payload back to the MQTT topic
         # Create a new MQTT client
         client = mqtt.Client()
+        if MQTT_USERNAME is not None:
+            client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
+
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.publish(MQTT_SUMMARY_TOPIC, updated_payload_json)
         logging.info("Published updated payload with summary back to MQTT topic.")
@@ -226,7 +232,13 @@ def process_message(payload):
 # Define what to do when the client connects to the broker
 def on_connect(client, userdata, flags, rc):
     logging.info("Connected with result code " + str(rc))
+    if rc > 0:
+        print("Connected with result code", rc)  # Print the result code for debugging
+        return
     client.subscribe(MQTT_FRIGATE_TOPIC)  # Subscribe to the topic
+    print(
+        "Subscribed to topic:", MQTT_FRIGATE_TOPIC
+    )  # Print the subscribed topic for debugging
 
 
 # Define what to do when a message is received
@@ -242,7 +254,8 @@ def on_message(client, userdata, msg):
             logging.info("Skipping message that has already been processed")
             return
         if (
-            payload["before"]["snapshot_time"] == payload["after"]["snapshot_time"]
+            payload["before"].get("snapshot_time")
+            == payload["after"].get("snapshot_time")
             and (payload["type"] != "end")
             and (event_id in ongoing_tasks)
         ):
@@ -282,7 +295,8 @@ if __name__ == "__main__":
     # Assign event callbacks
     client.on_connect = on_connect
     client.on_message = on_message
-
+    if MQTT_USERNAME is not None:
+        client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
     # Connect to the broker
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
