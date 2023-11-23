@@ -181,7 +181,9 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
         logging.info(f"Video clip for event {event_id} saved as {clip_filename}.")
 
         # After downloading, extract frames
-        return extract_frames(clip_filename, gap_secs)
+        frames = extract_frames(clip_filename, gap_secs)
+        os.remove(clip_filename)
+        return frames
     else:
         logging.error(
             f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}"
