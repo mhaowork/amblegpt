@@ -175,14 +175,19 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
         clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
 
         # clip_filename = "cache_video/" + f"clip_{event_id}.mp4"
+        try:
+            with open(clip_filename, "wb") as f:
+                f.write(response.content)
+            logging.info(f"Video clip for event {event_id} saved as {clip_filename}.")
 
-        with open(clip_filename, "wb") as f:
-            f.write(response.content)
-        logging.info(f"Video clip for event {event_id} saved as {clip_filename}.")
-
-        # After downloading, extract frames
-        frames = extract_frames(clip_filename, gap_secs)
-        os.remove(clip_filename)
+            # After downloading, extract frames
+            frames = extract_frames(clip_filename, gap_secs)
+            os.remove(clip_filename)
+        except OSError:
+            logging.error(
+                f"Failed to save video clip for event {event_id}. Error: {OSError.strerror}"
+            )
+            frames = []
         return frames
     else:
         logging.error(
