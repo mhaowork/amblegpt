@@ -2,6 +2,8 @@ frigate_server_ip: YOUR_FRIGATE_IP
 frigate_server_port: 5000
 mqtt_broker: YOUR_MQTT_BROKER_IP
 mqtt_port: 1883
+mqtt_username: YOUR_MQTT_USER # optional
+mqtt_password: YOUR_MQTT_PASSWORD # optional
 # prompt: >
 #   If necessary, uncomment this and use your prompt here
 #   The default prompt can be found in mqtt_client.py
