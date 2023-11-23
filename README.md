@@ -19,6 +19,7 @@ More video examples:
 | Video        | GPT Summary    |       
 | ------------- |:-------------:|
 | ![](assets/mock_package_theft_480p.gif)         | A man appeared, approached a package left outside, picked it up, and walked away. This could indicate a potential package theft, as the person showed no signs of verifying address or ownership before taking the package.|
+| ![](assets/mock_suspicious_visitor.gif)   | A person wearing a hoodie and a mask is seen approaching, standing by, and then walking away from the front door of a house. The person is carrying a bat and the scene takes place during nighttime, which is suggestive of suspicious or potentially criminal activity.|
 | ![](assets/ups_delivery.gif)      | A delivery man, approximately 35 years old, approached the door and placed a package down. He briefly interacted with a mobile device before leaving the scene. |
 | ![](assets/female_waiting_at_door_480p.gif)      | A female, approximately 30 years old and 1.65 meters tall, is seen approaching and standing at the front door, looking down momentarily and then preparing to interact with the person who might open the door |
 | ![](assets/usps_delivery_480p.gif)      | A postal worker (in a blue uniform) was seen exiting a delivery vehicle and walking off-screen, presumably to deliver mail or a package. |
