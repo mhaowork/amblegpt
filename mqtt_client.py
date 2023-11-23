@@ -76,13 +76,21 @@ Some example SUMMARIES are
     4. A person is wandering without obvious purpose in the middle of the night, which seems suspicious.
     5. A person walked into the frame from outside, picked up a package, and left.
        The person didn't wear any uniform so this doesn't look like a routine package pickup. Be aware of potential package theft!
+
+Write your answer in {RESULT_LANGUAGE} language.
 """
 
 PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
 
+RESULT_LANGUAGE = config.get("result_language", "english")
+
 
 def generate_prompt(gap_secs, event_start_time):
-    return PROMPT_TEMPLATE.format(GAP_SECS=gap_secs, EVENT_START_TIME=event_start_time)
+    return PROMPT_TEMPLATE.format(
+        GAP_SECS=gap_secs,
+        EVENT_START_TIME=event_start_time,
+        RESULT_LANGUAGE=RESULT_LANGUAGE,
+    )
 
 
 def get_local_time_str(ts: float):
