@@ -67,9 +67,23 @@ mqtt_port: 1883
 result_language: english # optional
 mqtt_username: YOUR_MQTT_USER # optional
 mqtt_password: YOUR_MQTT_PASSWORD # optional
-# prompt: >
-#   If necessary, uncomment this and use your prompt here
-#   The default prompt can be found in mqtt_client.py
+prompt: > #optional
+   If necessary, uncomment this and use your prompt here
+   The default prompt can be found in mqtt_client.py
+
+per_camera_configuration: #optional
+  # The camera name must match Frigate
+  Front Door:
+    # The custom prompt is optional and is used to provide more context for GPT to better understand the footage.
+    # This will be inserted into the prompt before sending it to GPT.
+    custom_prompt: >
+      The camera that took the footage is a doorbell camera outside the front door of the house.
+      The door is on the left side of the video frame and the exit is on the right side.
+  Outside:
+    custom_prompt: >
+      The camera that took the footage is mounted on the frame of the front window of the house facing the street.
+      The street allow guest parking and it is normal to see cars parked on the street.
+      There might also be people walking (with their dogs) on the sidewalk before 9pm.
 ```
 
 ### Run AmbleGPT
@@ -103,5 +117,5 @@ Note, the processing time for each video clip, which includes decoding and proce
 
 ## Future Work
 1. ~Allow easier prompt customization~
-2. Further reduce # of tokens required to process a clip
-3. Custom prompts per camera to allow GPT to understand the angle and context of each camera.
+2. ~Custom prompts per camera to allow GPT to understand the angle and context of each camera.~
+3. Further reduce # of tokens required to process a clip

@@ -39,7 +39,8 @@ GAP_SECS = 3
 # GPT config
 DEFAULT_PROMPT = """
 You're a helpful assistant helping to label a video for machine learning training
-You are reviewing some continuous frames of a video footage as of {EVENT_START_TIME}. Frames are {GAP_SECS} second(s) apart from each other in the chronological order…
+You are reviewing some continuous frames of a video footage as of {EVENT_START_TIME}. Frames are {GAP_SECS} second(s) apart from each other in the chronological order.
+{CAMERA_PROMPT}
 Please describe what happend in the video in json format. Do not print any markdown syntax!
 Answer like the following:
 {{
@@ -84,12 +85,23 @@ PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
 
 RESULT_LANGUAGE = config.get("result_language", "english")
 
+PER_CAMERA_CONFIG = config.get("per_camera_configuration", {})
 
-def generate_prompt(gap_secs, event_start_time):
+
+def get_camera_prompt(camera_name):
+    # Retrieve custom prompt for a specific camera
+    camera_config = PER_CAMERA_CONFIG.get(camera_name)
+    if camera_config and "custom_prompt" in camera_config:
+        return camera_config["custom_prompt"]
+    return ""
+
+
+def generate_prompt(gap_secs, event_start_time, camera_name):
     return PROMPT_TEMPLATE.format(
         GAP_SECS=gap_secs,
         EVENT_START_TIME=event_start_time,
         RESULT_LANGUAGE=RESULT_LANGUAGE,
+        CAMERA_PROMPT=get_camera_prompt(camera_name),
     )
 
 
@@ -208,7 +220,9 @@ def process_message(payload):
             return
 
         local_time_str = get_local_time_str(ts=payload["after"]["start_time"])
-        prompt = generate_prompt(GAP_SECS, local_time_str)
+        prompt = generate_prompt(
+            GAP_SECS, local_time_str, camera_name=payload["after"]["camera"]
+        )
         response = prompt_gpt4_with_video_frames(prompt, video_base64_frames)
         logging.info(f"GPT response {response.json()}")
         json_str = response.json()["choices"][0]["message"]["content"]
