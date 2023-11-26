@@ -44,21 +44,21 @@ You are reviewing some continuous frames of a video footage as of {EVENT_START_T
 Please describe what happend in the video in json format. Do not print any markdown syntax!
 Answer like the following:
 {{
-    num_persons : 2,
-    persons : [
+    "num_persons" : 2,
+    "persons" : [
     {{
-        height_in_meters: 1.75,
-        duration_of_stay_in_seconds: 15,
-        gender: "female",
-        age: 50
+        "height_in_meters": 1.75,
+        "duration_of_stay_in_seconds": 15,
+        "gender": "female",
+        "age": 50
     }},
     {{
-        height_in_meters: 1.60,
-        duration_of_stay_in_seconds: 15,
-        gender: "unknown",
-        age: 36
+        "height_in_meters": 1.60,
+        "duration_of_stay_in_seconds": 15,
+        "gender": "unknown",
+        "age": 36
     }},
-    summary: SUMMARY
+    "summary": "SUMMARY"
 }}
 
 You can guess their height and gender . It is 100 percent fine to be inaccurate.
