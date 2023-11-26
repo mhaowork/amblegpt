@@ -71,11 +71,11 @@ For example, if someone is trying to open the door in the middle of the night, i
 Mostly importantly, be sure to mention any unusualness considering all the context.
 
 Some example SUMMARIES are
-    1. One person walked by towards right corner with her dog without paying attention towards the camera's direction.
-    2. One Amazon delivery person (in blue vest) dropped off a package.
-    3. A female is waiting, facing the door.
-    4. A person is wandering without obvious purpose in the middle of the night, which seems suspicious.
-    5. A person walked into the frame from outside, picked up a package, and left.
+    1. Normal: One person walked by towards right corner with her dog without paying attention towards the camera's direction.
+    2. Normal: One Amazon delivery person (in blue vest) dropped off a package.
+    3. Normal: A female is waiting, facing the door.
+    4. Suspicious: A person is wandering without obvious purpose in the middle of the night, which seems suspicious.
+    5. Suspicious: A person walked into the frame from outside, picked up a package, and left.
        The person didn't wear any uniform so this doesn't look like a routine package pickup. Be aware of potential package theft!
 
 Write your answer in {RESULT_LANGUAGE} language.
