@@ -272,7 +272,7 @@ def on_message(client, userdata, msg):
                 "Skipping because the message with this snapshot is already (being) processed"
             )
             return
-        if not payload["before"]["has_clip"]:
+        if not payload["after"]["has_clip"]:
             # Skip if this snapshot has already been processed
             logging.info("Skipping because of no available video clip yet")
             return
