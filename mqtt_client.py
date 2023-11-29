@@ -1,5 +1,7 @@
+#!/usr/bin/env python
 import base64
 import pathlib
+import subprocess
 import imageio
 import os
 import json
@@ -146,7 +148,20 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     )
 
 
-def extract_frames(video_path, gap_secs):
+def is_ffmpeg_available():
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def extract_frames_imagio(video_path, gap_secs):
     logging.info("Extrating frames from video")
     reader = imageio.get_reader(video_path)
     fps = reader.get_meta_data()["fps"]
@@ -182,6 +197,47 @@ def extract_frames(video_path, gap_secs):
     reader.close()
     logging.info(f"Got {len(frames)} frames from video")
     return frames
+
+
+def extract_frames_ffmpeg(video_path, gap_secs):
+    logging.info("Extracting frames from video using FFmpeg")
+
+    # Extract the video file name and create a directory for frames
+    video_name = pathlib.Path(video_path).stem
+    frames_dir = os.path.join("cache_video", video_name)
+    os.makedirs(frames_dir, exist_ok=True)
+
+    # FFmpeg command to extract frames every gap_secs seconds and resize them
+    ffmpeg_command = [
+        "ffmpeg",
+        "-i",
+        video_path,
+        "-vf",
+        f"fps=1/{gap_secs},scale=480:480:force_original_aspect_ratio=decrease",
+        "-q:v",
+        "2",  # Quality level for JPEG
+        os.path.join(frames_dir, "frame_%04d.jpg"),
+    ]
+
+    # Execute FFmpeg command
+    subprocess.run(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    # Read and encode the extracted frames
+    frames = []
+    for frame_file in sorted(os.listdir(frames_dir)):
+        with open(os.path.join(frames_dir, frame_file), "rb") as file:
+            frame_bytes = file.read()
+            frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
+
+    logging.info(f"Got {len(frames)} frames from video")
+    return frames
+
+
+def extract_frames(video_path, gap_secs):
+    if is_ffmpeg_available():
+        return extract_frames_ffmpeg(video_path, gap_secs)
+    else:
+        return extract_frames_imagio(video_path, gap_secs)
 
 
 # Function to download video clip and extract frames
