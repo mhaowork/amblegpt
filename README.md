@@ -67,6 +67,7 @@ mqtt_port: 1883
 result_language: english # optional
 mqtt_username: YOUR_MQTT_USER # optional
 mqtt_password: YOUR_MQTT_PASSWORD # optional
+verbose_summary_mode: false #optinal, default true
 prompt: > #optional
    If necessary, uncomment this and use your prompt here
    The default prompt can be found in mqtt_client.py

@@ -61,6 +61,7 @@ Answer like the following:
         "age": 36
     }},
     "summary": "SUMMARY"
+    "title": "TITLE"
 }}
 
 You can guess their height and gender . It is 100 percent fine to be inaccurate.
@@ -80,6 +81,8 @@ Some example SUMMARIES are
     5. Suspicious: A person walked into the frame from outside, picked up a package, and left.
        The person didn't wear any uniform so this doesn't look like a routine package pickup. Be aware of potential package theft!
 
+TITLE is a one sentence summary of the event. Use no more than 10 words.
+
 Write your answer in {RESULT_LANGUAGE} language.
 """
 
@@ -88,6 +91,8 @@ PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
 RESULT_LANGUAGE = config.get("result_language", "english")
 
 PER_CAMERA_CONFIG = config.get("per_camera_configuration", {})
+
+VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
 
 
 def get_camera_prompt(camera_name):
@@ -287,7 +292,9 @@ def process_message(payload):
         result = json.loads(json_str)
 
         # Set the summary to the 'after' field
-        payload["after"]["summary"] = "| GPT: " + result["summary"]
+        payload["after"]["summary"] = (
+            "| GPT: " + result["summary"] if VERBOSE_SUMMARY_MODE else result["title"]
+        )
 
         # Convert the updated payload back to a JSON string
         updated_payload_json = json.dumps(payload)
