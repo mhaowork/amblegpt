@@ -225,6 +225,8 @@ def extract_frames_ffmpeg(video_path, gap_secs):
     # Read and encode the extracted frames
     frames = []
     for frame_file in sorted(os.listdir(frames_dir)):
+        if not frame_file.endswith(".jpg"): # to exclude .DS_Store etc
+            continue
         with open(os.path.join(frames_dir, frame_file), "rb") as file:
             frame_bytes = file.read()
             frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
