@@ -5,8 +5,21 @@ mqtt_port: 1883
 result_language: english
 mqtt_username: YOUR_MQTT_USER # optional
 mqtt_password: YOUR_MQTT_PASSWORD # optional
-
-#more optional configs are below
+max_response_token: 300 # optional, The maximum amount of tokens used by GPT to generate a response, default is shown. (https://platform.openai.com/docs/guides/vision)
+objects: # optional, Only process frigate events for the following objects, default ['person']. Note specified objects must also be enabled on frigate.
+  - person
+  - cat
+  - dog
+low_detail: True # optional, Use the low fidelity input for image quality to GPT4, default is shown. (https://platform.openai.com/docs/guides/vision)
+#more optional configs are below. If this is enabled each frame will be resized to a maximum of 512px x 512px. If set to False high_detail mode is used.
+internal_between_frames: 3 # optional, The internal in seconds to wait between the frames to capture and send to GPT4, 
+resized_frame_size: 512 # optional, The size in px to resize each from to, default shown: 512. Note chatgpt4 will automatically resize to 512 unless low_detail is disabled.
+max_frames_to_process: 10 # optional, The total number of video frames that are combined and set to GPT to process, default shown. Each image costs a specified set of tokens, depending on the detail mode and size of the image.
+process_clip: True # optional, When an event is triggered the captured frames will be extracted from the stream video feed. default shown. Note, sometimes it does take frigate a little longer to provide the video feed for an event.
+process_snapshot: False # optional, Mutually exclusive with process_stream. When an event is triggered the images will be obtained from the frigate HTTP snapshot endpoint, default shown.
+process_when_complete: False # optional, amblegpt will try to process every event (by id) only once. This option allows to only begin processing when frigate publishes the event[end] status. This would mean the entire video clip of the event should be available, default shown.
+event_wait_time: 5 # optional, frigate will publish an event to MQTT often before any portion of the clip is available, resulting in errors on frigate and amblegpt. This allows to set a value in seconds to wait before attempting to process the event. This is more important when process_clip is enabled, thus the default value becomes (internal_between_frames * 3). If process_snapshot is used the default value is (internal_between_frames). If process_when_complete is set, this value is disregarded.
+min_frames_to_process: 2 # optional, The min amount of frames to consider and successful processing of the event to submit the gpt, default shown.
 
 prompt: > #optional
   If necessary, uncomment this and use your prompt here

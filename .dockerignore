@@ -1,0 +1,10 @@
+*/config.example.yml
+*.md
+*/docker-compose.yml
+*/config.yml
+*/cache_video
+*/assets
+__pycache__
+*.pyc
+*.pyo
+*.pyd

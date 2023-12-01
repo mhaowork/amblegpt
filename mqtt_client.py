@@ -1,5 +1,7 @@
+#!/usr/bin/env python
 import base64
 import pathlib
+import subprocess
 import imageio
 import os
 import json
@@ -11,12 +13,14 @@ import tempfile
 import logging
 from multiprocessing import Process
 import yaml
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
+from cachetools import TTLCache
 
-logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)-s %(asctime)s %(processName)s: %(message)s",
+                    datefmt='%Y-%m-%d %H:%M:%S')
 
-ongoing_tasks = {}
-
+ongoing_tasks = TTLCache(maxsize=1000, ttl=timedelta(hours=4), timer=datetime.now)
 config = yaml.safe_load(open("config.yml", "r"))
 
 # Define the MQTT server settings
@@ -30,11 +34,26 @@ MQTT_PASSWORD = config.get("mqtt_password", "")
 # Define Frigate server details for thumbnail retrieval
 FRIGATE_SERVER_IP = config["frigate_server_ip"]
 FRIGATE_SERVER_PORT = config.get("frigate_server_port", 5000)
-THUMBNAIL_ENDPOINT = "/api/events/{}/thumbnail.jpg"
+EVENTS_ENDPOINT = "/api/events/{}"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
+SNAPSHOT_ENDPOINT = "/api/events/{}/snapshot.jpg?quality=100&crop=0&bbox=0&timestamp=0&h={}"
+VALID_LABELS = config.get("objects", ["person"])
+
+RUNNING_TASKS = []
+client = mqtt.Client()
 
 # Video frame sampling settings
-GAP_SECS = 3
+GAP_SECS = config.get("internal_between_frames", 3)
+FRAME_RESIZE = config.get("resized_frame_size", 512)
+MAX_RESPONSE_TOKEN = config.get("max_response_token", 300)
+MAX_FRAMES_TO_PROCESS = config.get("max_frames_to_process", 10)
+MIN_FRAMES_TO_PROCESS = config.get("min_frames_to_process", 2)
+LOW_DETAIL = config.get("low_detail", True)
+PROCESS_CLIP = config.get("process_clip", True)
+PROCESS_SNAPSHOT = config.get("process_snapshot", False if PROCESS_CLIP else True)
+
+PROCESS_WHEN_COMPLETE = config.get("process_when_complete", False)
+WAIT_FOR_EVENT_TIME = config.get("event_wait_time", GAP_SECS * 3 if PROCESS_CLIP else GAP_SECS)
 
 # GPT config
 DEFAULT_PROMPT = """
@@ -68,7 +87,7 @@ You can measure their duration of stay given the time gap between frames.
 You should take the time of event into account.
 For example, if someone is trying to open the door in the middle of the night, it would be suspicious. Be sure to mention it in the SUMMARY.
 
-Mostly importantly, be sure to mention any unusualness considering all the context.
+Mostly importantly, be sure to mention any unusual activity considering all the context.
 
 Some example SUMMARIES are
     1. One person walked by towards right corner with her dog without paying attention towards the camera's direction.
@@ -138,7 +157,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     payload = {
         "model": "gpt-4-vision-preview",
         "messages": PROMPT_MESSAGES,
-        "max_tokens": 200,
+        "max_tokens": MAX_RESPONSE_TOKEN,
     }
 
     return requests.post(
@@ -146,7 +165,20 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     )
 
 
-def extract_frames(video_path, gap_secs):
+def is_ffmpeg_available():
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def extract_frames_imagio(video_path, gap_secs):
     logging.info("Extrating frames from video")
     reader = imageio.get_reader(video_path)
     fps = reader.get_meta_data()["fps"]
@@ -184,17 +216,93 @@ def extract_frames(video_path, gap_secs):
     return frames
 
 
+def extract_frames_ffmpeg(video_path, gap_secs):
+    logging.info("Extracting frames from video using FFmpeg")
+
+    # Extract the video file name and create a directory for frames
+    video_name = pathlib.Path(video_path).stem
+    with tempfile.TemporaryDirectory(prefix=video_name, suffix="-cache") as frames_dir:
+        logging.info(f"Using temporary clip directory {frames_dir}")
+        if not LOW_DETAIL or FRAME_RESIZE < 512:
+            resize = FRAME_RESIZE
+        else:
+            resize = 512
+        # FFmpeg command to extract frames every gap_secs seconds and resize them
+        ffmpeg_command = [
+            "ffmpeg",
+            "-i",
+            video_path,
+            "-vf",
+            f"fps=1/{gap_secs},scale={resize}:{resize}:force_original_aspect_ratio=decrease",
+            "-q:v",
+            "2",  # Quality level for JPEG
+            os.path.join(frames_dir, "frame_%04d.jpg"),
+        ]
+
+        # Execute FFmpeg command
+        subprocess.run(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Read and encode the extracted frames
+        frames = []
+        for frame_file in sorted(os.listdir(frames_dir)):
+            while len(frames) < MAX_FRAMES_TO_PROCESS - 1:
+                with open(os.path.join(frames_dir, frame_file), "rb") as file:
+                    frame_bytes = file.read()
+                    frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
+            continue
+
+        logging.info(f"Got {len(frames)} frames from video")
+    return frames
+
+
+def extract_frames(video_path, gap_secs):
+    if is_ffmpeg_available():
+        return extract_frames_ffmpeg(video_path, gap_secs)
+    else:
+        return extract_frames_imagio(video_path, gap_secs)
+
+
+def download_snapshot_and_combine_frames(event_id, gap_secs):
+    snapshot_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{SNAPSHOT_ENDPOINT.format(event_id, FRAME_RESIZE)}"
+
+    frame_count = 0
+    retry_attempts = 0
+    frame_list = []
+    start_time = time.monotonic()
+    while frame_count < MAX_FRAMES_TO_PROCESS:
+        res = requests.get(snapshot_url)
+        if res.status_code == 200:
+            # with open(os.path.join(temp_dir.name, f"frame_{frame_count}.jpg"), 'wb') as file:
+            frame = base64.b64encode(res.content).decode("utf-8")
+            frame_list.append(frame)
+            #                file.write(res.content)
+            logging.info(f"Snapshot successfully Downloaded: frame_{frame_count}.jpg for event {event_id}")
+            frame_count += 1
+        else:
+            retry_attempts += 1
+            if retry_attempts > 5:
+                logging.info("Image Could not be retrieved")
+                return []
+        time.sleep(float(gap_secs) - ((time.monotonic() - start_time) % float(gap_secs)))
+    return frame_list
+
+
 # Function to download video clip and extract frames
 def download_video_clip_and_extract_frames(event_id, gap_secs):
     clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(event_id)}"
+    event_data = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{EVENTS_ENDPOINT.format(event_id)}"
+
+    event_response = requests.get(event_data).json()
+    if not event_response['has_clip']:
+        logging.error(f"Video clip for event {event_id}, is not yet ready.")
+        return []
     response = requests.get(clip_url)
 
     if response.status_code == 200:
         # Create a temporary directory
         temp_dir = tempfile.TemporaryDirectory()
         clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
-
-        # clip_filename = "cache_video/" + f"clip_{event_id}.mp4"
+        logging.info(f"Creating temporary directory for video clip: {clip_filename}")
 
         with open(clip_filename, "wb") as f:
             f.write(response.content)
@@ -210,99 +318,125 @@ def download_video_clip_and_extract_frames(event_id, gap_secs):
 
 
 def process_message(payload):
+    global ongoing_tasks
     try:
         event_id = payload["after"]["id"]
-        video_base64_frames = download_video_clip_and_extract_frames(
-            event_id, gap_secs=GAP_SECS
-        )
 
-        if len(video_base64_frames) == 0:
+        # If the event is complete, we have no reason to wait
+        if not PROCESS_WHEN_COMPLETE:
+            time.sleep(WAIT_FOR_EVENT_TIME)
+
+        if PROCESS_SNAPSHOT:
+            video_base64_frames = download_snapshot_and_combine_frames(
+                event_id, gap_secs=GAP_SECS
+            )
+        elif PROCESS_CLIP:
+            video_base64_frames = download_snapshot_and_combine_frames(
+                event_id, gap_secs=GAP_SECS
+            )
+        else:
+            raise RuntimeError("Error, both PROCESS_SNAPSHOT and PROCESS_CLIP cannot be disable")
+
+        if len(video_base64_frames) < MIN_FRAMES_TO_PROCESS:
+            if event_id in ongoing_tasks:
+                logging.info(f"Canceling message processing, clip is still too short: {event_id}")
+                ongoing_tasks.pop(event_id)
+                if event_id in ongoing_tasks:
+                    raise Exception("Failed to remove event_id from cache")
             return
 
         local_time_str = get_local_time_str(ts=payload["after"]["start_time"])
         prompt = generate_prompt(
             GAP_SECS, local_time_str, camera_name=payload["after"]["camera"]
         )
-        response = prompt_gpt4_with_video_frames(prompt, video_base64_frames)
+
+        response = prompt_gpt4_with_video_frames(prompt, video_base64_frames, LOW_DETAIL)
         logging.info(f"GPT response {response.json()}")
         json_str = response.json()["choices"][0]["message"]["content"]
         result = json.loads(json_str)
 
         # Set the summary to the 'after' field
-        payload["after"]["summary"] = "| GPT: " + result["summary"]
+        payload["after"]["summary"] = result["summary"]
 
         # Convert the updated payload back to a JSON string
         updated_payload_json = json.dumps(payload)
 
-        # Publish the updated payload back to the MQTT topic
-        # Create a new MQTT client
-        client = mqtt.Client()
-        if MQTT_USERNAME is not None:
-            client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
-
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        client.publish(MQTT_SUMMARY_TOPIC, updated_payload_json)
-        logging.info("Published updated payload with summary back to MQTT topic.")
-    except Exception:
+        # Publish the updated payload back to the MQTT topic
+        publish_result = client.publish(MQTT_SUMMARY_TOPIC, updated_payload_json, qos=0)
+        logging.info("Publishing updated payload with summary back to MQTT topic.")
+        publish_result.wait_for_publish()
+        logging.info(f"message is published: {publish_result.is_published()}")
+    except Exception as ex:
         logging.exception(f"Error processing video for event {event_id}")
-    finally:
-        # Cleanup: remove the task from the ongoing_tasks dict
-        if event_id in ongoing_tasks:
-            del ongoing_tasks[event_id]
+        logging.error(f"Exception: {ex}")
 
 
 # Define what to do when the client connects to the broker
 def on_connect(client, userdata, flags, rc):
-    logging.info("Connected with result code " + str(rc))
+    logging.info(f"Connected with result code " + str(rc))
     if rc > 0:
-        print("Connected with result code", rc)  # Print the result code for debugging
+        logging.debug(f"Connected with result code {str(rc)}")
         return
-    client.subscribe(MQTT_FRIGATE_TOPIC)  # Subscribe to the topic
-    print(
-        "Subscribed to topic:", MQTT_FRIGATE_TOPIC
-    )  # Print the subscribed topic for debugging
+    # Subscribe to the topic
+    client.subscribe(MQTT_FRIGATE_TOPIC)
+    logging.info(f"Subscribed to topic: {MQTT_FRIGATE_TOPIC}")
+
+
+def on_publish(client, userdata, result):
+    logging.info(f"on_publish, result: {result}")
 
 
 # Define what to do when a message is received
 def on_message(client, userdata, msg):
     global ongoing_tasks
-
-    # Parse the message payload as JSON
     event_id = None
     try:
+        # Parse the message payload as JSON
         payload = json.loads(msg.payload.decode("utf-8"))
+        event_id = payload["before"]["id"]
+        logging.debug(f"Received MQTT message for event: {event_id}")
+
+        if event_id in ongoing_tasks:
+            logging.info(f"Not processing running event: {event_id}")
+            return
+
+        if PROCESS_WHEN_COMPLETE and payload["type"] != "end":
+            logging.debug(f"Configured to only process event when it ends, event is still running")
+            return
+
         if "summary" in payload["after"] and payload["after"]["summary"]:
             # Skip if this message has already been processed. To prevent echo loops
-            logging.info("Skipping message that has already been processed")
+            logging.debug("Skipping message that has already been processed")
             return
         if (
-            payload["before"].get("snapshot_time")
-            == payload["after"].get("snapshot_time")
-            and (payload["type"] != "end")
-            and (event_id in ongoing_tasks)
+                payload["before"].get("snapshot_time")
+                == payload["after"].get("snapshot_time")
+                and (payload["type"] != "end")
+                and (event_id in ongoing_tasks)
         ):
             # Skip if this snapshot has already been processed
             logging.info(
                 "Skipping because the message with this snapshot is already (being) processed"
             )
             return
-        if not payload["after"]["has_clip"]:
-            # Skip if this snapshot has already been processed
-            logging.info("Skipping because of no available video clip yet")
-            return
-        event_id = payload["after"]["id"]
-        logging.info(f"Event ID: {event_id}")
 
-        # If there's an ongoing task for the same event, terminate it
-        if event_id in ongoing_tasks:
-            ongoing_tasks[event_id].terminate()
-            ongoing_tasks[event_id].join()  # Wait for process to terminate
-            logging.info(f"Terminated ongoing task for event {event_id}")
+        if not payload["after"]["has_clip"] and PROCESS_CLIP:
+            # Skip if this snapshot has already been processed
+            logging.debug("Skipping because of no available video clip yet, and configured for processing stream")
+            return
+
+        if payload["before"]["stationary"] or payload["after"]["stationary"]:
+            logging.debug("Skipping event for stationary object")
+            return
+
+        if payload["before"]["label"] not in VALID_LABELS or payload["after"]["label"] not in VALID_LABELS:
+            logging.debug(f"Skipping event for object not in {*VALID_LABELS,}")
+            return
 
         # Start a new task for the new message
-        processing_task = Process(target=process_message, args=(payload,))
-        processing_task.start()
-        ongoing_tasks[event_id] = processing_task
+        ongoing_tasks[event_id] = Process(target=process_message, args=(payload,))
+        ongoing_tasks[event_id].start()
 
     except json.JSONDecodeError:
         logging.exception("Error decoding JSON")
@@ -310,17 +444,25 @@ def on_message(client, userdata, msg):
         logging.exception("Key not found in JSON payload")
 
 
-if __name__ == "__main__":
+def main():
+    global client
+
+    logging.info(f"ffmpeg for video processing is enabled: {is_ffmpeg_available()}")
     # Create a client instance
     client = mqtt.Client()
 
+    if MQTT_USERNAME is not None:
+        client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
     # Assign event callbacks
     client.on_connect = on_connect
     client.on_message = on_message
-    if MQTT_USERNAME is not None:
-        client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
+    client.on_publish = on_publish
     # Connect to the broker
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.connect(MQTT_BROKER, MQTT_PORT)
 
     # Blocking call that processes network traffic, dispatches callbacks, and handles reconnecting
     client.loop_forever()
+
+
+if __name__ == "__main__":
+    main()

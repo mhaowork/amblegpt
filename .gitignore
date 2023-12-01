@@ -1,7 +1,7 @@
 cache_video
 
 config.yml
-
+docker-compose.yml
 *.ipynb
 
 .DS_STORE

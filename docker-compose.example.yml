@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  amblegpt:
+    container_name: amblegpt
+    image: irakhlin/amblegpt:0.1.1
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${API_KEY}
+    volumes:
+      - /config/amblegpt/config.yml:/app/config.yml
+      - type: tmpfs # Optional: 1GB of memory, reduces SSD/SD Card wear
+        target: /tmp
+        tmpfs:
+          size: 1000000000

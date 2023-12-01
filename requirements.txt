@@ -5,3 +5,4 @@ Pillow
 imageio
 imageio[ffmpeg]
 pyyaml
+cachetools
