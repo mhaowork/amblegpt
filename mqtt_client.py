@@ -293,7 +293,7 @@ def process_message(payload):
 
         # Set the summary to the 'after' field
         payload["after"]["summary"] = (
-            "| GPT: " + result["summary"] if VERBOSE_SUMMARY_MODE else result["title"]
+            "| GPT: " + (result["summary"] if VERBOSE_SUMMARY_MODE else result["title"])
         )
 
         # Convert the updated payload back to a JSON string
