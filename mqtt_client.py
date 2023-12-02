@@ -2,6 +2,8 @@
 import base64
 import pathlib
 import subprocess
+from json import JSONDecodeError
+
 import imageio
 import os
 import json
@@ -16,6 +18,9 @@ import yaml
 from datetime import datetime, timedelta
 import time
 from cachetools import TTLCache
+from string import Template
+
+import threading
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-s %(asctime)s %(processName)s: %(message)s",
                     datefmt='%Y-%m-%d %H:%M:%S')
@@ -37,6 +42,7 @@ FRIGATE_SERVER_PORT = config.get("frigate_server_port", 5000)
 EVENTS_ENDPOINT = "/api/events/{}"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
 SNAPSHOT_ENDPOINT = "/api/events/{}/snapshot.jpg?quality=100&crop=0&bbox=0&timestamp=0&h={}"
+SUB_LABEL_ENDPOINT = "/api/events/{}/sub_label"
 VALID_LABELS = config.get("objects", ["person"])
 
 RUNNING_TASKS = []
@@ -45,48 +51,62 @@ client = mqtt.Client()
 # Video frame sampling settings
 GAP_SECS = config.get("internal_between_frames", 3)
 FRAME_RESIZE = config.get("resized_frame_size", 512)
-MAX_RESPONSE_TOKEN = config.get("max_response_token", 300)
+MAX_RESPONSE_TOKEN = config.get("max_response_token", 500)
 MAX_FRAMES_TO_PROCESS = config.get("max_frames_to_process", 10)
 MIN_FRAMES_TO_PROCESS = config.get("min_frames_to_process", 2)
 LOW_DETAIL = config.get("low_detail", True)
 PROCESS_CLIP = config.get("process_clip", True)
 PROCESS_SNAPSHOT = config.get("process_snapshot", False if PROCESS_CLIP else True)
-
+UPDATE_FRIGATE_SUBLABEL = config.get("update_frigate_sublabel", False)
 PROCESS_WHEN_COMPLETE = config.get("process_when_complete", False)
 WAIT_FOR_EVENT_TIME = config.get("event_wait_time", GAP_SECS * 3 if PROCESS_CLIP else GAP_SECS)
+CAMERA_DEBOUNCE_TIME = config.get("camera_retrigger_time", 30)
+
+recent_triggered_cameras = TTLCache(maxsize=20, ttl=CAMERA_DEBOUNCE_TIME)
+
+
+
+SYSTEM_PROMPT = """
+You're an assistant helping to label videos from security cameras for machine learning training.
+Never include triple backticks in your response.
+Never include ```json in your response.
+You only returns replies with valid, iterable RFC8259 compliant JSON in your response.
+"""
 
 # GPT config
 DEFAULT_PROMPT = """
-You're a helpful assistant helping to label a video for machine learning training
-You are reviewing some continuous frames of a video footage as of {EVENT_START_TIME}. Frames are {GAP_SECS} second(s) apart from each other in the chronological order.
-{CAMERA_PROMPT}
-Please describe what happend in the video in json format. Do not print any markdown syntax!
-Answer like the following:
-{{
+You are reviewing some continuous frames of video footage as of $EVENT_START_TIME. 
+Frames are $GAP_SECS second(s) apart from each other in chronological order.
+
+Information about the camera:
+$CAMERA_PROMPT
+
+Please describe what happened in the video in json format. Do not print any markdown syntax!
+Please respond with the following JSON:
+{
     "num_persons" : 2,
     "persons" : [
-    {{
+    {
         "height_in_meters": 1.75,
         "duration_of_stay_in_seconds": 15,
         "gender": "female",
         "age": 50
-    }},
-    {{
+    },
+    {
         "height_in_meters": 1.60,
         "duration_of_stay_in_seconds": 15,
         "gender": "unknown",
         "age": 36
-    }},
-    "summary": "SUMMARY"
-}}
+    },
+    "summary": "SUMMARY",
+    "title": "TITLE"
+}
 
-You can guess their height and gender . It is 100 percent fine to be inaccurate.
-
+Even if you are not certain you need to make a guess for their height and gender. It is 100 percent fine to be inaccurate.
 You can measure their duration of stay given the time gap between frames.
 
 You should take the time of event into account.
 For example, if someone is trying to open the door in the middle of the night, it would be suspicious. Be sure to mention it in the SUMMARY.
-
 Mostly importantly, be sure to mention any unusual activity considering all the context.
 
 Some example SUMMARIES are
@@ -97,14 +117,18 @@ Some example SUMMARIES are
     5. Suspicious: A person walked into the frame from outside, picked up a package, and left.
        The person didn't wear any uniform so this doesn't look like a routine package pickup. Be aware of potential package theft!
 
-Write your answer in {RESULT_LANGUAGE} language.
+TITLE is a one sentence summary of the event. Use no more than 100 characters.
+Write your answer in $RESULT_LANGUAGE language. Never include triple backticks in your response.
 """
+
 
 PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
 
 RESULT_LANGUAGE = config.get("result_language", "english")
 
 PER_CAMERA_CONFIG = config.get("per_camera_configuration", {})
+
+VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
 
 
 def get_camera_prompt(camera_name):
@@ -116,11 +140,12 @@ def get_camera_prompt(camera_name):
 
 
 def generate_prompt(gap_secs, event_start_time, camera_name):
-    return PROMPT_TEMPLATE.format(
+    templated_prompt = Template(PROMPT_TEMPLATE)
+    return templated_prompt.substitute(
+        RESULT_LANGUAGE=RESULT_LANGUAGE,
         GAP_SECS=gap_secs,
         EVENT_START_TIME=event_start_time,
-        RESULT_LANGUAGE=RESULT_LANGUAGE,
-        CAMERA_PROMPT=get_camera_prompt(camera_name),
+        CAMERA_PROMPT=get_camera_prompt(camera_name)
     )
 
 
@@ -137,6 +162,10 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
         "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
     }
     PROMPT_MESSAGES = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        },
         {
             "role": "user",
             "content": [
@@ -179,7 +208,7 @@ def is_ffmpeg_available():
 
 
 def extract_frames_imagio(video_path, gap_secs):
-    logging.info("Extrating frames from video")
+    logging.info("Extracting frames from video")
     reader = imageio.get_reader(video_path)
     fps = reader.get_meta_data()["fps"]
     frames = []
@@ -262,7 +291,13 @@ def extract_frames(video_path, gap_secs):
         return extract_frames_imagio(video_path, gap_secs)
 
 
-def download_snapshot_and_combine_frames(event_id, gap_secs):
+def download_snapshot_and_combine_frames(event_id: str, gap_secs: int) -> list:
+    """
+
+    :param event_id:
+    :param gap_secs:
+    :return:
+    """
     snapshot_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{SNAPSHOT_ENDPOINT.format(event_id, FRAME_RESIZE)}"
 
     frame_count = 0
@@ -272,10 +307,8 @@ def download_snapshot_and_combine_frames(event_id, gap_secs):
     while frame_count < MAX_FRAMES_TO_PROCESS:
         res = requests.get(snapshot_url)
         if res.status_code == 200:
-            # with open(os.path.join(temp_dir.name, f"frame_{frame_count}.jpg"), 'wb') as file:
             frame = base64.b64encode(res.content).decode("utf-8")
             frame_list.append(frame)
-            #                file.write(res.content)
             logging.info(f"Snapshot successfully Downloaded: frame_{frame_count}.jpg for event {event_id}")
             frame_count += 1
         else:
@@ -287,8 +320,13 @@ def download_snapshot_and_combine_frames(event_id, gap_secs):
     return frame_list
 
 
-# Function to download video clip and extract frames
-def download_video_clip_and_extract_frames(event_id, gap_secs):
+def download_video_clip_and_extract_frames(event_id: str, gap_secs: int) -> list:
+    f"""
+    download video clip for event id and extract frames every gap_secs
+    :param event_id: frigate event id to fetch
+    :param gap_secs: period in seconds to wait between still images to extract from clip
+    :return: list of extracted
+    """
     clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(event_id)}"
     event_data = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{EVENTS_ENDPOINT.format(event_id)}"
 
@@ -340,7 +378,8 @@ def process_message(payload):
         if len(video_base64_frames) < MIN_FRAMES_TO_PROCESS:
             if event_id in ongoing_tasks:
                 logging.info(f"Canceling message processing, clip is still too short: {event_id}")
-                ongoing_tasks.pop(event_id)
+                with threading.Lock():
+                    ongoing_tasks.pop(event_id)
                 if event_id in ongoing_tasks:
                     raise Exception("Failed to remove event_id from cache")
             return
@@ -356,8 +395,17 @@ def process_message(payload):
         result = json.loads(json_str)
 
         # Set the summary to the 'after' field
-        payload["after"]["summary"] = result["summary"]
+        payload["after"]["summary"] = (
+                "| GPT: " + (result["summary"] if VERBOSE_SUMMARY_MODE else result["title"])
+        )
 
+        if VERBOSE_SUMMARY_MODE and UPDATE_FRIGATE_SUBLABEL:
+            url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{SUB_LABEL_ENDPOINT.format(event_id)}"
+            request = requests.post(url, json={"subLabel": f"{result['title']}"})
+            if request.status_code == 200:
+                logging.debug(f"Frigate sublabel updated with summary for event: {event_id}")
+            else:
+                logging.error(f"Failed updating Frigate sublabel for event: {event_id}")
         # Convert the updated payload back to a JSON string
         updated_payload_json = json.dumps(payload)
 
@@ -367,6 +415,9 @@ def process_message(payload):
         logging.info("Publishing updated payload with summary back to MQTT topic.")
         publish_result.wait_for_publish()
         logging.info(f"message is published: {publish_result.is_published()}")
+    except JSONDecodeError as ex:
+        logging.error(f"Exception: {ex}")
+        logging.error(f"Json response from GPT was received with incorrect structure.")
     except Exception as ex:
         logging.exception(f"Error processing video for event {event_id}")
         logging.error(f"Exception: {ex}")
@@ -387,8 +438,14 @@ def on_publish(client, userdata, result):
     logging.info(f"on_publish, result: {result}")
 
 
-# Define what to do when a message is received
 def on_message(client, userdata, msg):
+    """
+    on_message mqtt callback
+    :param client:
+    :param userdata:
+    :param msg:
+    :return:
+    """
     global ongoing_tasks
     event_id = None
     try:
@@ -398,7 +455,7 @@ def on_message(client, userdata, msg):
         logging.debug(f"Received MQTT message for event: {event_id}")
 
         if event_id in ongoing_tasks:
-            logging.info(f"Not processing running event: {event_id}")
+            logging.debug(f"Not processing running event: {event_id}")
             return
 
         if PROCESS_WHEN_COMPLETE and payload["type"] != "end":
@@ -416,7 +473,7 @@ def on_message(client, userdata, msg):
                 and (event_id in ongoing_tasks)
         ):
             # Skip if this snapshot has already been processed
-            logging.info(
+            logging.debug(
                 "Skipping because the message with this snapshot is already (being) processed"
             )
             return
@@ -434,8 +491,17 @@ def on_message(client, userdata, msg):
             logging.debug(f"Skipping event for object not in {*VALID_LABELS,}")
             return
 
-        # Start a new task for the new message
-        ongoing_tasks[event_id] = Process(target=process_message, args=(payload,))
+        if payload["before"]["camera"] in recent_triggered_cameras:
+            with threading.Lock():
+                ongoing_tasks[event_id] = False
+                return
+
+
+        # Start a new thread for the new message
+        with threading.Lock():
+            ongoing_tasks[event_id] = threading.Thread(target=process_message, args=(payload,), name=payload["before"]["camera"])
+            recent_triggered_cameras[payload["before"]["camera"]] = True
+        #ongoing_tasks[event_id] = Process(target=process_message, args=(payload,))
         ongoing_tasks[event_id].start()
 
     except json.JSONDecodeError:
