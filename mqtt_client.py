@@ -13,19 +13,16 @@ import io
 from PIL import Image
 import tempfile
 import logging
-from multiprocessing import Process
 import yaml
 from datetime import datetime, timedelta
 import time
 from cachetools import TTLCache
 from string import Template
-
 import threading
+import queue
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-s %(asctime)s %(processName)s: %(message)s",
                     datefmt='%Y-%m-%d %H:%M:%S')
-
-ongoing_tasks = TTLCache(maxsize=1000, ttl=timedelta(hours=4), timer=datetime.now)
 config = yaml.safe_load(open("config.yml", "r"))
 
 # Define the MQTT server settings
@@ -45,9 +42,6 @@ SNAPSHOT_ENDPOINT = "/api/events/{}/snapshot.jpg?quality=100&crop=0&bbox=0&times
 SUB_LABEL_ENDPOINT = "/api/events/{}/sub_label"
 VALID_LABELS = config.get("objects", ["person"])
 
-RUNNING_TASKS = []
-client = mqtt.Client()
-
 # Video frame sampling settings
 GAP_SECS = config.get("internal_between_frames", 3)
 FRAME_RESIZE = config.get("resized_frame_size", 512)
@@ -62,12 +56,14 @@ PROCESS_WHEN_COMPLETE = config.get("process_when_complete", False)
 WAIT_FOR_EVENT_TIME = config.get("event_wait_time", GAP_SECS * 3 if PROCESS_CLIP else GAP_SECS)
 CAMERA_DEBOUNCE_TIME = config.get("camera_retrigger_time", 30)
 
+RUNNING_TASKS = []
+outgoing_message_queue = queue.Queue(maxsize=10)
+ongoing_tasks = TTLCache(maxsize=1000, ttl=timedelta(hours=4), timer=datetime.now)
 recent_triggered_cameras = TTLCache(maxsize=20, ttl=CAMERA_DEBOUNCE_TIME)
 
 
-
 SYSTEM_PROMPT = """
-You're an assistant helping to label videos from security cameras for machine learning training.
+You are an assistant helping to label videos from security cameras for machine learning training.
 Never include triple backticks in your response.
 Never include ```json in your response.
 You only returns replies with valid, iterable RFC8259 compliant JSON in your response.
@@ -75,7 +71,7 @@ You only returns replies with valid, iterable RFC8259 compliant JSON in your res
 
 # GPT config
 DEFAULT_PROMPT = """
-You are reviewing some continuous frames of video footage as of $EVENT_START_TIME. 
+You are reviewing some continuous frames of video footage from a camera as of $EVENT_START_TIME. 
 Frames are $GAP_SECS second(s) apart from each other in chronological order.
 
 Information about the camera:
@@ -130,6 +126,7 @@ PER_CAMERA_CONFIG = config.get("per_camera_configuration", {})
 
 VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
 
+C
 
 def get_camera_prompt(camera_name):
     # Retrieve custom prompt for a specific camera
@@ -395,9 +392,12 @@ def process_message(payload):
         result = json.loads(json_str)
 
         # Set the summary to the 'after' field
-        payload["after"]["summary"] = (
-                "| GPT: " + (result["summary"] if VERBOSE_SUMMARY_MODE else result["title"])
-        )
+        payload["after"]["summary"] = (result["summary"] if VERBOSE_SUMMARY_MODE else result["title"])
+        if VERBOSE_SUMMARY_MODE:
+            payload["after"]["summary_title"] = result["title"]
+        if result["num_persons"] > 0:
+            payload["after"]["summary_details"] = result["persons"]
+
 
         if VERBOSE_SUMMARY_MODE and UPDATE_FRIGATE_SUBLABEL:
             url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{SUB_LABEL_ENDPOINT.format(event_id)}"
@@ -406,15 +406,9 @@ def process_message(payload):
                 logging.debug(f"Frigate sublabel updated with summary for event: {event_id}")
             else:
                 logging.error(f"Failed updating Frigate sublabel for event: {event_id}")
-        # Convert the updated payload back to a JSON string
+        # Convert the updated payload back to a JSON string and put in the outgoing queue
         updated_payload_json = json.dumps(payload)
-
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        # Publish the updated payload back to the MQTT topic
-        publish_result = client.publish(MQTT_SUMMARY_TOPIC, updated_payload_json, qos=0)
-        logging.info("Publishing updated payload with summary back to MQTT topic.")
-        publish_result.wait_for_publish()
-        logging.info(f"message is published: {publish_result.is_published()}")
+        outgoing_message_queue.put(updated_payload_json)
     except JSONDecodeError as ex:
         logging.error(f"Exception: {ex}")
         logging.error(f"Json response from GPT was received with incorrect structure.")
@@ -433,6 +427,15 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(MQTT_FRIGATE_TOPIC)
     logging.info(f"Subscribed to topic: {MQTT_FRIGATE_TOPIC}")
 
+
+def on_connect_writer(client, userdata, flags, rc):
+    logging.info(f"Connected with result code " + str(rc))
+    if rc > 0:
+        logging.debug(f"Connected with result code {str(rc)}")
+        return
+    # Subscribe to the topic
+    client.subscribe(MQTT_SUMMARY_TOPIC)
+    logging.info(f"Subscribed to topic: {MQTT_SUMMARY_TOPIC}")
 
 def on_publish(client, userdata, result):
     logging.info(f"on_publish, result: {result}")
@@ -501,7 +504,6 @@ def on_message(client, userdata, msg):
         with threading.Lock():
             ongoing_tasks[event_id] = threading.Thread(target=process_message, args=(payload,), name=payload["before"]["camera"])
             recent_triggered_cameras[payload["before"]["camera"]] = True
-        #ongoing_tasks[event_id] = Process(target=process_message, args=(payload,))
         ongoing_tasks[event_id].start()
 
     except json.JSONDecodeError:
@@ -510,13 +512,29 @@ def on_message(client, userdata, msg):
         logging.exception("Key not found in JSON payload")
 
 
-def main():
-    global client
+def publish_message():
+    publish_client = mqtt.Client("amblegpt_publish_client")
+    if MQTT_USERNAME is not None:
+        publish_client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
+    logging.debug("Opening connection for mqtt publish client")
+    publish_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    logging.debug(f"mqtt publish client is connected: {publish_client.is_connected()}")
+    publish_client.loop_start()
+    while True:
+        message = outgoing_message_queue.get()
+        publish_result = publish_client.publish(MQTT_SUMMARY_TOPIC, message, qos=1)
+        publish_result.wait_for_publish()
+        logging.info(f"Publishing updated payload with summary back to MQTT topic. "
+                     f"Published: {publish_result.is_published()}")
 
+
+def main():
     logging.info(f"ffmpeg for video processing is enabled: {is_ffmpeg_available()}")
+
+    mqtt_publish_thread = threading.Thread(target=publish_message, daemon=True)
+    mqtt_publish_thread.start()
     # Create a client instance
     client = mqtt.Client()
-
     if MQTT_USERNAME is not None:
         client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
     # Assign event callbacks

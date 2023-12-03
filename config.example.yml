@@ -20,6 +20,8 @@ process_snapshot: False # optional, Mutually exclusive with process_stream. When
 process_when_complete: False # optional, amblegpt will try to process every event (by id) only once. This option allows to only begin processing when frigate publishes the event[end] status. This would mean the entire video clip of the event should be available, default shown.
 event_wait_time: 5 # optional, frigate will publish an event to MQTT often before any portion of the clip is available, resulting in errors on frigate and amblegpt. This allows to set a value in seconds to wait before attempting to process the event. This is more important when process_clip is enabled, thus the default value becomes (internal_between_frames * 3). If process_snapshot is used the default value is (internal_between_frames). If process_when_complete is set, this value is disregarded.
 min_frames_to_process: 2 # optional, The min amount of frames to consider and successful processing of the event to submit the gpt, default shown.
+update_frigate_sublabel: False # optional, Update the sublabel for the frigate event with the content of the title field.
+
 
 prompt: > #optional
   If necessary, uncomment this and use your prompt here
