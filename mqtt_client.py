@@ -14,16 +14,23 @@ import logging
 from multiprocessing import Process
 import yaml
 from datetime import datetime
+import atexit
 
 logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
 
 ongoing_tasks = {}
+
+amblegpt_enabled = True
 
 config = yaml.safe_load(open("config.yml", "r"))
 
 # Define the MQTT server settings
 MQTT_FRIGATE_TOPIC = "frigate/events"
 MQTT_SUMMARY_TOPIC = "frigate/events/summary"
+MQTT_HA_SWITCH_TOPIC = "homeassistant/switch/amblegpt"
+MQTT_HA_SWITCH_CONFIG_TOPIC = MQTT_HA_SWITCH_TOPIC + "/config"
+MQTT_HA_SWITCH_COMMAND_TOPIC = MQTT_HA_SWITCH_TOPIC + "/set"
+MQTT_HA_SWITCH_STATE_TOPIC = MQTT_HA_SWITCH_TOPIC + "/state"
 MQTT_BROKER = config["mqtt_broker"]
 MQTT_PORT = config.get("mqtt_port", 1883)
 MQTT_USERNAME = config.get("mqtt_username", "")
@@ -93,6 +100,8 @@ RESULT_LANGUAGE = config.get("result_language", "english")
 PER_CAMERA_CONFIG = config.get("per_camera_configuration", {})
 
 VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
+
+ADD_HA_SWITCH = config.get("add_ha_switch", False)
 
 
 def get_camera_prompt(camera_name):
@@ -320,18 +329,43 @@ def process_message(payload):
 def on_connect(client, userdata, flags, rc):
     logging.info("Connected with result code " + str(rc))
     if rc > 0:
-        print("Connected with result code", rc)  # Print the result code for debugging
+        print("Connected with result code", rc)
         return
-    client.subscribe(MQTT_FRIGATE_TOPIC)  # Subscribe to the topic
-    print(
-        "Subscribed to topic:", MQTT_FRIGATE_TOPIC
-    )  # Print the subscribed topic for debugging
+    TOPICS_TO_SUBSCRIBE = [MQTT_FRIGATE_TOPIC]
+
+    # MQTT discovery configuration
+    if ADD_HA_SWITCH:
+        TOPICS_TO_SUBSCRIBE.append(MQTT_HA_SWITCH_COMMAND_TOPIC)
+        config_message = {
+            "name": "AmbleGPT",
+            "command_topic": MQTT_HA_SWITCH_COMMAND_TOPIC,
+            "state_topic": MQTT_HA_SWITCH_STATE_TOPIC,
+            "unique_id": "amblegptd",
+            "device": {"identifiers": ["amblegpt0a"], "name": "AmbleGPT"},
+        }
+        client.publish(
+            MQTT_HA_SWITCH_CONFIG_TOPIC,
+            json.dumps(config_message),
+        )
+
+    for topic in TOPICS_TO_SUBSCRIBE:
+        client.subscribe(topic)
+    print("Subscribed to topic:", TOPICS_TO_SUBSCRIBE)
 
 
 # Define what to do when a message is received
 def on_message(client, userdata, msg):
-    global ongoing_tasks
+    global ongoing_tasks, amblegpt_enabled
 
+    if msg.topic == MQTT_HA_SWITCH_COMMAND_TOPIC:
+        amblegpt_enabled = msg.payload.decode("utf-8").upper() == "ON"
+        logging.info(f"AmbleGPT enabled: {amblegpt_enabled}")
+        return
+    if msg.topic != MQTT_FRIGATE_TOPIC:
+        return
+    if not amblegpt_enabled:
+        logging.info(f"Ignored Frigate event because AmbleGPT is disabled")
+        return
     # Parse the message payload as JSON
     event_id = None
     try:
@@ -374,6 +408,10 @@ def on_message(client, userdata, msg):
     except KeyError:
         logging.exception("Key not found in JSON payload")
 
+def cleanup(client):
+    logging.info("Exiting. Cleaning up")
+    client.publish(MQTT_HA_SWITCH_CONFIG_TOPIC, "")
+    client.disconnect()
 
 if __name__ == "__main__":
     # Create a client instance
@@ -386,6 +424,8 @@ if __name__ == "__main__":
         client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
     # Connect to the broker
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
+
+    atexit.register(lambda: cleanup(client))
 
     # Blocking call that processes network traffic, dispatches callbacks, and handles reconnecting
     client.loop_forever()
