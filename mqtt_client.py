@@ -239,7 +239,7 @@ def extract_frames_ffmpeg(video_path, gap_secs):
     # Read and encode the extracted frames
     frames = []
     for frame_file in sorted(os.listdir(frames_dir)):
-        if not frame_file.endswith(".jpg"): # to exclude .DS_Store etc
+        if not frame_file.endswith(".jpg"):  # to exclude .DS_Store etc
             continue
         with open(os.path.join(frames_dir, frame_file), "rb") as file:
             frame_bytes = file.read()
@@ -301,8 +301,8 @@ def process_message(payload):
         result = json.loads(json_str)
 
         # Set the summary to the 'after' field
-        payload["after"]["summary"] = (
-            "| GPT: " + (result["summary"] if VERBOSE_SUMMARY_MODE else result["title"])
+        payload["after"]["summary"] = "| GPT: " + (
+            result["summary"] if VERBOSE_SUMMARY_MODE else result["title"]
         )
 
         # Convert the updated payload back to a JSON string
@@ -408,10 +408,12 @@ def on_message(client, userdata, msg):
     except KeyError:
         logging.exception("Key not found in JSON payload")
 
+
 def cleanup(client):
     logging.info("Exiting. Cleaning up")
     client.publish(MQTT_HA_SWITCH_CONFIG_TOPIC, "")
     client.disconnect()
+
 
 if __name__ == "__main__":
     # Create a client instance
