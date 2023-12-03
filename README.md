@@ -10,7 +10,7 @@ AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip us
 
 
 ## Recent Updates
-* An option `add_ha_switch` for adding a Switch in Home Assistant to allow turning off AmbleGPT when AI summary is not needed. Also see [Home Assistant Switch](https://github.com/mhaowork/amblegpt#home-assistant-switch) section below. (2023-12-03)
+* An option `add_ha_switch` for adding a Switch in Home Assistant to allow turning off AmbleGPT when AI summary is not needed. Also see [Home Assistant Switch](#home-assistant-switch) section below. (2023-12-03)
 * An option for less verbose summary: see `verbose_summary_mode` below (2023-11-30)
 * Use ffmpeg (if available) for sampling video . Thanks @skrashevich for the contribution (2023-11-30)
 
