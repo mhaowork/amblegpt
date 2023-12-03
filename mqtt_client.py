@@ -15,6 +15,9 @@ from multiprocessing import Process
 import yaml
 from datetime import datetime
 import atexit
+from functools import partial
+import signal
+
 
 logging.basicConfig(level=logging.INFO, format="%(processName)s: %(message)s")
 
@@ -416,6 +419,10 @@ def cleanup(client):
     client.publish(MQTT_HA_SWITCH_CONFIG_TOPIC, "")
     client.disconnect()
 
+def handle_sigterm(client, signum, frame):
+    cleanup(client)
+    exit(0)
+
 
 if __name__ == "__main__":
     # Create a client instance
@@ -430,6 +437,7 @@ if __name__ == "__main__":
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
     atexit.register(lambda: cleanup(client))
+    signal.signal(signal.SIGTERM, partial(handle_sigterm, client))
 
     # Blocking call that processes network traffic, dispatches callbacks, and handles reconnecting
     client.loop_forever()
