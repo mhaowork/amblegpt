@@ -10,7 +10,7 @@ AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip us
 
 
 ## Recent Updates
-* An option `add_ha_switch` for adding a Switch in Home Assistant to allow turning off AmbleGPT when AI summary is not needed (2023-12-03)
+* An option `add_ha_switch` for adding a Switch in Home Assistant to allow turning off AmbleGPT when AI summary is not needed. Also see "Home Assistant Switch" section below. (2023-12-03)
 * An option for less verbose summary: see `verbose_summary_mode` below (2023-11-30)
 * Use ffmpeg (if available) for sampling video . Thanks @skrashevich for the contribution (2023-11-30)
 
@@ -120,6 +120,12 @@ If you already have SgtBatten/HA_blueprints, you will need to manually edit its 
 **That's it for the installation!**
 
 Note, the processing time for each video clip, which includes decoding and processing, varies based on the CPU speed of your host machine and OpenAI API round-trip time. So in reality, you will see one notification first which includes the usual static message like "Person Detected - Front camera". Then after a delay, the notification text will update automatically to show the AmbleGPT summary.
+
+### Home Assistant Switch
+
+If `add_ha_switch` config is true, a switch will be automatically added in HA like below to able to turn on and off AmbleGPT. Note, following a HA reboot, restarting AmbleGPT docker container is also needed for the toggle to function correctly.
+
+![image](https://github.com/mhaowork/amblegpt/assets/8702853/f058965a-2936-4e3c-ac9c-ce076074a662)
 
 
 
