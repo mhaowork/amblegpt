@@ -347,6 +347,7 @@ def on_connect(client, userdata, flags, rc):
             MQTT_HA_SWITCH_CONFIG_TOPIC,
             json.dumps(config_message),
         )
+        client.publish(MQTT_HA_SWITCH_STATE_TOPIC, "ON")
 
     for topic in TOPICS_TO_SUBSCRIBE:
         client.subscribe(topic)
@@ -360,6 +361,7 @@ def on_message(client, userdata, msg):
     if msg.topic == MQTT_HA_SWITCH_COMMAND_TOPIC:
         amblegpt_enabled = msg.payload.decode("utf-8").upper() == "ON"
         logging.info(f"AmbleGPT enabled: {amblegpt_enabled}")
+        client.publish(MQTT_HA_SWITCH_STATE_TOPIC, "ON" if amblegpt_enabled else "OFF")
         return
     if msg.topic != MQTT_FRIGATE_TOPIC:
         return
