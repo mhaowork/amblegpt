@@ -3,10 +3,13 @@ import base64
 import pathlib
 import subprocess
 from json import JSONDecodeError
+from typing import Any, Dict, List
 
 import imageio
 import os
+import sys
 import json
+
 import requests
 import paho.mqtt.client as mqtt
 import io
@@ -20,129 +23,37 @@ from cachetools import TTLCache
 from string import Template
 import threading
 import queue
+from typing import MutableMapping, Any, List, Dict
+from dataclasses import dataclass, field
+from config import AmbleConfig, CameraConfig, init_config
+from const import SNAPSHOT_ENDPOINT, CLIP_ENDPOINT, EVENTS_ENDPOINT, DESCRIPTION_ENDPOINT, SUB_LABEL_ENDPOINT
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)-s %(asctime)s %(processName)s: %(message)s",
+logging.basicConfig(level=logging.INFO, format="%(levelname)-s %(asctime)s %(threadName)s: %(message)s",
                     datefmt='%Y-%m-%d %H:%M:%S')
-config = yaml.safe_load(open("config.yml", "r"))
 
-# Define the MQTT server settings
-MQTT_FRIGATE_TOPIC = "frigate/events"
-MQTT_SUMMARY_TOPIC = "frigate/events/summary"
-MQTT_BROKER = config["mqtt_broker"]
-MQTT_PORT = config.get("mqtt_port", 1883)
-MQTT_USERNAME = config.get("mqtt_username", "")
-MQTT_PASSWORD = config.get("mqtt_password", "")
+@dataclass(order=True)
+class PrioritizedItem:
+    priority: int
+    item: Any=field(compare=False)
 
-# Define Frigate server details for thumbnail retrieval
-FRIGATE_SERVER_IP = config["frigate_server_ip"]
-FRIGATE_SERVER_PORT = config.get("frigate_server_port", 5000)
-EVENTS_ENDPOINT = "/api/events/{}"
-CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
-SNAPSHOT_ENDPOINT = "/api/events/{}/snapshot.jpg?quality=100&crop=0&bbox=0&timestamp=0&h={}"
-SUB_LABEL_ENDPOINT = "/api/events/{}/sub_label"
-VALID_LABELS = config.get("objects", ["person"])
+config: AmbleConfig = init_config()
 
-# Video frame sampling settings
-GAP_SECS = config.get("internal_between_frames", 3)
-FRAME_RESIZE = config.get("resized_frame_size", 512)
-MAX_RESPONSE_TOKEN = config.get("max_response_token", 500)
-MAX_FRAMES_TO_PROCESS = config.get("max_frames_to_process", 10)
-MIN_FRAMES_TO_PROCESS = config.get("min_frames_to_process", 2)
-LOW_DETAIL = config.get("low_detail", True)
-PROCESS_CLIP = config.get("process_clip", True)
-PROCESS_SNAPSHOT = config.get("process_snapshot", False if PROCESS_CLIP else True)
-UPDATE_FRIGATE_SUBLABEL = config.get("update_frigate_sublabel", False)
-PROCESS_WHEN_COMPLETE = config.get("process_when_complete", False)
-WAIT_FOR_EVENT_TIME = config.get("event_wait_time", GAP_SECS * 3 if PROCESS_CLIP else GAP_SECS)
-CAMERA_DEBOUNCE_TIME = config.get("camera_retrigger_time", 30)
+outgoing_message_queue = queue.PriorityQueue(maxsize=20)
+ongoing_tasks: MutableMapping[str, threading.Thread] = TTLCache(maxsize=1000, ttl=timedelta(hours=4), timer=datetime.now)
+recent_triggered_cameras: MutableMapping[str, bool] = TTLCache(maxsize=20, ttl=config.event.debounce)
 
-RUNNING_TASKS = []
-outgoing_message_queue = queue.Queue(maxsize=10)
-ongoing_tasks = TTLCache(maxsize=1000, ttl=timedelta(hours=4), timer=datetime.now)
-recent_triggered_cameras = TTLCache(maxsize=20, ttl=CAMERA_DEBOUNCE_TIME)
+stop_event: threading.Event = threading.Event()
+client: mqtt.Client = mqtt.Client(client_id="amblegpt-mqtt")
+usage_dict: Dict = {}
+valid_camera_list: List = []
 
-
-SYSTEM_PROMPT = """
-You are an assistant helping to label videos from security cameras for machine learning training.
-Never include triple backticks in your response.
-Never include ```json in your response.
-You only returns replies with valid, iterable RFC8259 compliant JSON in your response.
-"""
-
-# GPT config
-DEFAULT_PROMPT = """
-You are reviewing some continuous frames of video footage from a camera as of $EVENT_START_TIME. 
-Frames are $GAP_SECS second(s) apart from each other in chronological order.
-
-Information about the camera:
-$CAMERA_PROMPT
-
-Please describe what happened in the video in json format. Do not print any markdown syntax!
-Please respond with the following JSON:
-{
-    "num_persons" : 2,
-    "persons" : [
-    {
-        "height_in_meters": 1.75,
-        "duration_of_stay_in_seconds": 15,
-        "gender": "female",
-        "age": 50
-    },
-    {
-        "height_in_meters": 1.60,
-        "duration_of_stay_in_seconds": 15,
-        "gender": "unknown",
-        "age": 36
-    },
-    "summary": "SUMMARY",
-    "title": "TITLE"
-}
-
-Even if you are not certain you need to make a guess for their height and gender. It is 100 percent fine to be inaccurate.
-You can measure their duration of stay given the time gap between frames.
-
-You should take the time of event into account.
-For example, if someone is trying to open the door in the middle of the night, it would be suspicious. Be sure to mention it in the SUMMARY.
-Mostly importantly, be sure to mention any unusual activity considering all the context.
-
-Some example SUMMARIES are
-    1. One person walked by towards right corner with her dog without paying attention towards the camera's direction.
-    2. One Amazon delivery person (in blue vest) dropped off a package.
-    3. A female is waiting, facing the door.
-    4. Suspicious: A person is wandering without obvious purpose in the middle of the night, which seems suspicious.
-    5. Suspicious: A person walked into the frame from outside, picked up a package, and left.
-       The person didn't wear any uniform so this doesn't look like a routine package pickup. Be aware of potential package theft!
-
-TITLE is a one sentence summary of the event. Use no more than 100 characters.
-Write your answer in $RESULT_LANGUAGE language. Never include triple backticks in your response.
-"""
-
-
-PROMPT_TEMPLATE = config.get("prompt", DEFAULT_PROMPT)
-
-RESULT_LANGUAGE = config.get("result_language", "english")
-
-PER_CAMERA_CONFIG = config.get("per_camera_configuration", {})
-
-VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
-
-C
-
-def get_camera_prompt(camera_name):
-    # Retrieve custom prompt for a specific camera
-    camera_config = PER_CAMERA_CONFIG.get(camera_name)
-    if camera_config and "custom_prompt" in camera_config:
-        return camera_config["custom_prompt"]
-    return ""
-
-
-def generate_prompt(gap_secs, event_start_time, camera_name):
-    templated_prompt = Template(PROMPT_TEMPLATE)
+def generate_prompt(event_start_time: str, camera_name: str) -> str:
+    templated_prompt = Template(config.prompt.prompt)
     return templated_prompt.substitute(
-        RESULT_LANGUAGE=RESULT_LANGUAGE,
-        GAP_SECS=gap_secs,
+        RESULT_LANGUAGE=config.prompt.language,
+        GAP_SECS=config.image.interval,
         EVENT_START_TIME=event_start_time,
-        CAMERA_PROMPT=get_camera_prompt(camera_name)
+        CAMERA_PROMPT=config.cameras[camera_name].prompt
     )
 
 
@@ -152,16 +63,17 @@ def get_local_time_str(ts: float):
     return dt_object.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
+def prompt_gpt4_with_video_frames(prompt, base64_frames,
+                                   detail) -> requests.Response:
     logging.info("prompting GPT-4v")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
     }
-    PROMPT_MESSAGES = [
+    prompt_messages = [
         {
             "role": "system",
-            "content": SYSTEM_PROMPT
+            "content": config.prompt.system
         },
         {
             "role": "user",
@@ -172,7 +84,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{frame}",
-                            "detail": "low" if low_detail else "high",
+                            "detail": detail,
                         },
                     },
                     base64_frames,
@@ -182,8 +94,8 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     ]
     payload = {
         "model": "gpt-4-vision-preview",
-        "messages": PROMPT_MESSAGES,
-        "max_tokens": MAX_RESPONSE_TOKEN,
+        "messages": prompt_messages,
+        "max_tokens": config.prompt.max_tokens,
     }
 
     return requests.post(
@@ -191,7 +103,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     )
 
 
-def is_ffmpeg_available():
+def is_ffmpeg_available() -> None:
     try:
         subprocess.run(
             ["ffmpeg", "-version"],
@@ -249,10 +161,7 @@ def extract_frames_ffmpeg(video_path, gap_secs):
     video_name = pathlib.Path(video_path).stem
     with tempfile.TemporaryDirectory(prefix=video_name, suffix="-cache") as frames_dir:
         logging.info(f"Using temporary clip directory {frames_dir}")
-        if not LOW_DETAIL or FRAME_RESIZE < 512:
-            resize = FRAME_RESIZE
-        else:
-            resize = 512
+        resize = config.image.frame_size
         # FFmpeg command to extract frames every gap_secs seconds and resize them
         ffmpeg_command = [
             "ffmpeg",
@@ -271,7 +180,7 @@ def extract_frames_ffmpeg(video_path, gap_secs):
         # Read and encode the extracted frames
         frames = []
         for frame_file in sorted(os.listdir(frames_dir)):
-            while len(frames) < MAX_FRAMES_TO_PROCESS - 1:
+            while len(frames) < config.image.max_frames - 1:
                 with open(os.path.join(frames_dir, frame_file), "rb") as file:
                     frame_bytes = file.read()
                     frames.append(base64.b64encode(frame_bytes).decode("utf-8"))
@@ -288,20 +197,14 @@ def extract_frames(video_path, gap_secs):
         return extract_frames_imagio(video_path, gap_secs)
 
 
-def download_snapshot_and_combine_frames(event_id: str, gap_secs: int) -> list:
-    """
-
-    :param event_id:
-    :param gap_secs:
-    :return:
-    """
-    snapshot_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{SNAPSHOT_ENDPOINT.format(event_id, FRAME_RESIZE)}"
+def download_snapshot_and_combine_frames(event_id, gap_secs):
+    snapshot_url = f"http://{config.frigate.host}:{config.frigate.port}{SNAPSHOT_ENDPOINT.format(event_id, config.image.frame_size)}"
 
     frame_count = 0
     retry_attempts = 0
     frame_list = []
     start_time = time.monotonic()
-    while frame_count < MAX_FRAMES_TO_PROCESS:
+    while frame_count < config.image.max_frames and not stop_event.is_set():
         res = requests.get(snapshot_url)
         if res.status_code == 200:
             frame = base64.b64encode(res.content).decode("utf-8")
@@ -324,8 +227,8 @@ def download_video_clip_and_extract_frames(event_id: str, gap_secs: int) -> list
     :param gap_secs: period in seconds to wait between still images to extract from clip
     :return: list of extracted
     """
-    clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(event_id)}"
-    event_data = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{EVENTS_ENDPOINT.format(event_id)}"
+    clip_url = f"http://{config.frigate.host}:{config.frigate.port}{CLIP_ENDPOINT.format(event_id)}"
+    event_data = f"http://{config.frigate.host}:{config.frigate.port}{EVENTS_ENDPOINT.format(event_id)}"
 
     event_response = requests.get(event_data).json()
     if not event_response['has_clip']:
@@ -352,27 +255,28 @@ def download_video_clip_and_extract_frames(event_id: str, gap_secs: int) -> list
         return []
 
 
-def process_message(payload):
+def process_message(payload) -> None:
     global ongoing_tasks
+    global usage_dict
     try:
         event_id = payload["after"]["id"]
 
         # If the event is complete, we have no reason to wait
-        if not PROCESS_WHEN_COMPLETE:
-            time.sleep(WAIT_FOR_EVENT_TIME)
+        if not config.event.process_complete:
+            time.sleep(config.event.pre_wait_time)
 
-        if PROCESS_SNAPSHOT:
+        if config.event.snapshots:
             video_base64_frames = download_snapshot_and_combine_frames(
-                event_id, gap_secs=GAP_SECS
+                event_id, gap_secs=config.image.interval
             )
-        elif PROCESS_CLIP:
-            video_base64_frames = download_snapshot_and_combine_frames(
-                event_id, gap_secs=GAP_SECS
+        elif config.event.clips:
+            video_base64_frames = download_video_clip_and_extract_frames(
+                event_id, gap_secs=config.image.interval
             )
         else:
             raise RuntimeError("Error, both PROCESS_SNAPSHOT and PROCESS_CLIP cannot be disable")
 
-        if len(video_base64_frames) < MIN_FRAMES_TO_PROCESS:
+        if len(video_base64_frames) < config.image.min_frames:
             if event_id in ongoing_tasks:
                 logging.info(f"Canceling message processing, clip is still too short: {event_id}")
                 with threading.Lock():
@@ -383,32 +287,74 @@ def process_message(payload):
 
         local_time_str = get_local_time_str(ts=payload["after"]["start_time"])
         prompt = generate_prompt(
-            GAP_SECS, local_time_str, camera_name=payload["after"]["camera"]
+            event_start_time=local_time_str, camera_name=payload["after"]["camera"]
         )
 
-        response = prompt_gpt4_with_video_frames(prompt, video_base64_frames, LOW_DETAIL)
-        logging.info(f"GPT response {response.json()}")
+        if stop_event.is_set():
+            return
+        try:
+            response = prompt_gpt4_with_video_frames(prompt, video_base64_frames, config.image.image_quality)
+            logging.debug(f"GPT response: {response.json()}")
+            logging.debug(f"Response headers: {response.headers}")
+        except Exception as ex:
+            logging.error(f"GPT API produced an error: {ex}")
+            return
+
         json_str = response.json()["choices"][0]["message"]["content"]
         result = json.loads(json_str)
+        usage = response.json()["usage"]
 
         # Set the summary to the 'after' field
-        payload["after"]["summary"] = (result["summary"] if VERBOSE_SUMMARY_MODE else result["title"])
-        if VERBOSE_SUMMARY_MODE:
-            payload["after"]["summary_title"] = result["title"]
+        payload["after"]["summary"] = result["summary"]
+        payload["after"]["summary_title"] = result["title"]
+
         if result["num_persons"] > 0:
             payload["after"]["summary_details"] = result["persons"]
 
+        if config.frigate.update_description:
+            description = f"{result['summary']}"
+            if result["persons"] and int(result["num_persons"]) > 0:
+                for index, person in enumerate(result["persons"]):
+                    description += f" Person {index+1}: "
+                    for key in person:
+                        description += f" {key}: {person[key]}, "
 
-        if VERBOSE_SUMMARY_MODE and UPDATE_FRIGATE_SUBLABEL:
-            url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{SUB_LABEL_ENDPOINT.format(event_id)}"
-            request = requests.post(url, json={"subLabel": f"{result['title']}"})
+                    description_stripped = description.strip()
+                    description = description_stripped + "."
+            trimmed_description = description.strip()
+            payload["after"]["description"] = trimmed_description
+            url = f"http://{config.frigate.host}:{config.frigate.port}{DESCRIPTION_ENDPOINT.format(event_id)}"
+            request = requests.post(url, json={"description": trimmed_description})
             if request.status_code == 200:
-                logging.debug(f"Frigate sublabel updated with summary for event: {event_id}")
+                logging.debug(f"Frigate description updated with summary for event: {event_id}")
             else:
-                logging.error(f"Failed updating Frigate sublabel for event: {event_id}")
-        # Convert the updated payload back to a JSON string and put in the outgoing queue
-        updated_payload_json = json.dumps(payload)
-        outgoing_message_queue.put(updated_payload_json)
+                logging.error(f"Failed updating Frigate description for event: {event_id}")
+
+        if config.frigate.update_label:
+            sub_label = f"{result['title']}"
+            url = f"http://{config.frigate.host}:{config.frigate.port}{SUB_LABEL_ENDPOINT.format(event_id)}"
+            request = requests.post(url, json={"sub_label": sub_label})
+            if request.status_code == 200:
+                logging.debug(f"Frigate sub_label updated with summary for event: {event_id}")
+            else:
+                logging.error(f"Failed sub_label Frigate description for event: {event_id}")
+
+        outgoing_message_queue.put(
+            PrioritizedItem(20, (f"{config.mqtt.topic_prefix}/events", payload))
+            )
+        if usage_dict:
+            usage_dict["prompt_tokens"] += usage["prompt_tokens"]
+            usage_dict["completion_tokens"] += usage["completion_tokens"]
+            usage_dict["total_tokens"] += usage["total_tokens"]
+        else:
+            usage_dict = usage
+
+        outgoing_message_queue.put(
+            PrioritizedItem(1,
+                            (f"{config.mqtt.topic_prefix}/token_usage",
+                              usage_dict))
+            )
+
     except JSONDecodeError as ex:
         logging.error(f"Exception: {ex}")
         logging.error(f"Json response from GPT was received with incorrect structure.")
@@ -418,50 +364,40 @@ def process_message(payload):
 
 
 # Define what to do when the client connects to the broker
-def on_connect(client, userdata, flags, rc):
+def on_connect(client: mqtt.Client, userdata, flags, rc):
     logging.info(f"Connected with result code " + str(rc))
     if rc > 0:
         logging.debug(f"Connected with result code {str(rc)}")
-        return
     # Subscribe to the topic
-    client.subscribe(MQTT_FRIGATE_TOPIC)
-    logging.info(f"Subscribed to topic: {MQTT_FRIGATE_TOPIC}")
+    client.subscribe("frigate/events")
+    client.subscribe(f"{config.mqtt.topic_prefix}/token_usage", qos=1)
+    logging.info("Subscribed to topic: frigate/events")
+    client.publish(f"{config.mqtt.topic_prefix}/status", "online", retain=True)
+    
 
-
-def on_connect_writer(client, userdata, flags, rc):
-    logging.info(f"Connected with result code " + str(rc))
-    if rc > 0:
-        logging.debug(f"Connected with result code {str(rc)}")
-        return
-    # Subscribe to the topic
-    client.subscribe(MQTT_SUMMARY_TOPIC)
-    logging.info(f"Subscribed to topic: {MQTT_SUMMARY_TOPIC}")
-
-def on_publish(client, userdata, result):
-    logging.info(f"on_publish, result: {result}")
+def on_publish(client, userdata, mid):
+    logging.debug(f"mqtt published message id {mid}")
 
 
 def on_message(client, userdata, msg):
-    """
-    on_message mqtt callback
-    :param client:
-    :param userdata:
-    :param msg:
-    :return:
-    """
     global ongoing_tasks
-    event_id = None
     try:
         # Parse the message payload as JSON
         payload = json.loads(msg.payload.decode("utf-8"))
         event_id = payload["before"]["id"]
+        valid_objects = config.frigate.tracked_objects
+        camera = payload["before"]["camera"]
+
         logging.debug(f"Received MQTT message for event: {event_id}")
+        
+        if camera not in valid_camera_list:
+            logging.debug(f"Not a valid camera for analysis")
 
         if event_id in ongoing_tasks:
             logging.debug(f"Not processing running event: {event_id}")
             return
 
-        if PROCESS_WHEN_COMPLETE and payload["type"] != "end":
+        if config.event.process_complete and payload["type"] != "end":
             logging.debug(f"Configured to only process event when it ends, event is still running")
             return
 
@@ -481,7 +417,7 @@ def on_message(client, userdata, msg):
             )
             return
 
-        if not payload["after"]["has_clip"] and PROCESS_CLIP:
+        if not payload["after"]["has_clip"] and config.event.clips:
             # Skip if this snapshot has already been processed
             logging.debug("Skipping because of no available video clip yet, and configured for processing stream")
             return
@@ -490,20 +426,19 @@ def on_message(client, userdata, msg):
             logging.debug("Skipping event for stationary object")
             return
 
-        if payload["before"]["label"] not in VALID_LABELS or payload["after"]["label"] not in VALID_LABELS:
-            logging.debug(f"Skipping event for object not in {*VALID_LABELS,}")
+        if payload["before"]["label"] not in valid_objects or payload["after"]["label"] not in valid_objects:
+            logging.debug(f"Skipping event for object not in {*valid_objects,}")
             return
 
-        if payload["before"]["camera"] in recent_triggered_cameras:
-            with threading.Lock():
-                ongoing_tasks[event_id] = False
-                return
-
+        if camera in recent_triggered_cameras:
+            logging.debug(f"Skipping event due to debounce interval")
+            return
+        
 
         # Start a new thread for the new message
         with threading.Lock():
-            ongoing_tasks[event_id] = threading.Thread(target=process_message, args=(payload,), name=payload["before"]["camera"])
-            recent_triggered_cameras[payload["before"]["camera"]] = True
+            ongoing_tasks[event_id] = threading.Thread(target=process_message, args=(payload,), name=f"Thread-{threading.active_count()}-{camera}")
+            recent_triggered_cameras[camera] = True
         ongoing_tasks[event_id].start()
 
     except json.JSONDecodeError:
@@ -513,40 +448,80 @@ def on_message(client, userdata, msg):
 
 
 def publish_message():
-    publish_client = mqtt.Client("amblegpt_publish_client")
-    if MQTT_USERNAME is not None:
-        publish_client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
-    logging.debug("Opening connection for mqtt publish client")
-    publish_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    logging.debug(f"mqtt publish client is connected: {publish_client.is_connected()}")
-    publish_client.loop_start()
-    while True:
-        message = outgoing_message_queue.get()
-        publish_result = publish_client.publish(MQTT_SUMMARY_TOPIC, message, qos=1)
-        publish_result.wait_for_publish()
-        logging.info(f"Publishing updated payload with summary back to MQTT topic. "
-                     f"Published: {publish_result.is_published()}")
+    retainFlag = False
+    qosFlag = 1
 
+    while True:
+        priority_message = outgoing_message_queue.get()
+        message = priority_message.item
+        print(message)
+        if message[0] == "" and message[1] == "":
+            logging.warning("Publishing thread received exit signal, terminating...")
+            break
+        elif message[0] == f"{config.mqtt.topic_prefix}/token_usage":
+            retainFlag = True
+        
+        publish_results = client.publish(message[0], json.dumps(message[1]), qos=qosFlag, retain=retainFlag)
+        logging.info(f"Publishing updated payload with summary back to MQTT topic.")
+        publish_results.wait_for_publish()
+        logging.info(f"MQTT Published: {publish_results.is_published()}")
+
+
+def handle_token_usage(client, userdata, msg):
+    if msg.payload:
+        payload = json.loads(msg.payload.decode("utf-8"))
+    if not usage_dict and payload:
+        usage_dict["prompt_tokens"] = int(payload["prompt_tokens"])
+        usage_dict["completion_tokens"] = int(payload["completion_tokens"])
+        usage_dict["total_tokens"] = int(payload["total_tokens"])
+    logging.info("unsubscribing from history")
+    client.unsubscribe(f"{config.mqtt.topic_prefix}/token_usage")
 
 def main():
+    global client
+    global mqtt_publish_thread
     logging.info(f"ffmpeg for video processing is enabled: {is_ffmpeg_available()}")
-
-    mqtt_publish_thread = threading.Thread(target=publish_message, daemon=True)
-    mqtt_publish_thread.start()
     # Create a client instance
-    client = mqtt.Client()
-    if MQTT_USERNAME is not None:
-        client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
+    #client = mqtt.Client()
+    if config.mqtt.user is not None:
+        client.username_pw_set(username=config.mqtt.user,
+                            password=config.mqtt.password)
     # Assign event callbacks
+    client.message_callback_add(sub=f"{config.mqtt.topic_prefix}/token_usage",
+                                callback=handle_token_usage)
     client.on_connect = on_connect
     client.on_message = on_message
     client.on_publish = on_publish
-    # Connect to the broker
-    client.connect(MQTT_BROKER, MQTT_PORT)
-
+    # Set last will
+    client.will_set(
+        topic=f"{config.mqtt.topic_prefix}/status",
+        payload="offline",
+        qos=1,
+        retain=True
+    )
+    # mqtt connect
+    try:
+        client.connect(config.mqtt.host, config.mqtt.port)
+    except TimeoutError as ex:
+        logging.error("Unable to connect to MQTT broker, exiting...")
+        sys.exit(1)
+    
+    mqtt_publish_thread = threading.Thread(target=publish_message, name="mqtt-publish-thread")
+    mqtt_publish_thread.start()
     # Blocking call that processes network traffic, dispatches callbacks, and handles reconnecting
     client.loop_forever()
 
-
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.warning("Keyboard interrupt called, closing all threads")
+        #outgoing_message_queue.put((0, (MQTT_TOKEN_USAGE_TOPIC, usage_dict)), False)
+        outgoing_message_queue.put(PrioritizedItem(0,("","")))
+    
+        stop_event.set()
+        for event_thread in ongoing_tasks:
+            if ongoing_tasks[event_thread].is_alive():
+                ongoing_tasks[event_thread].join()
+
+        sys.exit(1)
