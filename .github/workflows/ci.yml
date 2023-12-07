@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  push:
+    branches:
+      - dev
+      - master
+
+# only run the latest commit to avoid cache overwrites
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: 3.9
+
+jobs:
+  amd64_build:
+    runs-on: ubuntu-latest
+    name: AMD64 Build
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up QEMU and Buildx
+        id: setup
+        uses: ./.github/actions/setup
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push amd64 standard build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.setup.outputs.image-name }}-amd64
+          cache-from: type=registry,ref=${{ steps.setup.outputs.cache-name }}-amd64
+  arm64_build:
+    runs-on: ubuntu-latest
+    name: ARM Build
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up QEMU and Buildx
+        id: setup
+        uses: ./.github/actions/setup
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push arm64 standard build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/arm64
+          tags: |
+            ${{ steps.setup.outputs.image-name }}-standard-arm64
+          cache-from: type=registry,ref=${{ steps.setup.outputs.cache-name }}-arm64
+
+  # The majority of users running arm64 are rpi users, so the rpi
+  # build should be the primary arm64 image
+  assemble_default_build:
+    runs-on: ubuntu-latest
+    name: Assemble and push default build
+    needs:
+      - amd64_build
+      - arm64_build
+    steps:
+      - id: lowercaseRepo
+        uses: ASzc/change-string-case-action@v6
+        with:
+          string: ${{ github.repository }}
+      - name: Log in to the Container registry
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create short sha
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+      - uses: int128/docker-manifest-create-action@v1
+        with:
+          tags: ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:${{ github.ref_name }}-${{ env.SHORT_SHA }}
+          suffixes: |
+            -amd64
+            -rpi
