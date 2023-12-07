@@ -1,0 +1,51 @@
+name: Build
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+      - master
+
+# only run the latest commit to avoid cache overwrites
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHON_VERSION: 3.9
+
+jobs:
+  build_all:
+    runs-on: ubuntu-latest
+    name: Build AMD64 and ARM64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ inputs.GITHUB_TOKEN }}
+      - name: Create version file
+        run: make version
+        shell: bash
+      - id: create-short-sha
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        shell: bash
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          outputs: "type=registry,push=true"
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_type }}-${{ env.SHORT_SHA }}
+            ghcr.io/${{ github.repository }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}}/${{ github.repository }},
+            org.opencontainers.image.description=AmbleGPT
