@@ -67,7 +67,7 @@ jobs:
           push: true
           platforms: linux/arm64
           tags: |
-            ${{ steps.setup.outputs.image-name }}-standard-arm64
+            ${{ steps.setup.outputs.image-name }}-arm64
           cache-from: type=registry,ref=${{ steps.setup.outputs.cache-name }}-arm64
 
   # The majority of users running arm64 are rpi users, so the rpi
