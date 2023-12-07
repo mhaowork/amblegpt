@@ -44,7 +44,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_type }}-${{ env.SHORT_SHA }}
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}-${{ steps.create-short-sha.outputs.SHORT_SHA }}
             ghcr.io/${{ github.repository }}:latest
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}}/${{ github.repository }},
