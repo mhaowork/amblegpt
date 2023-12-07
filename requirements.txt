@@ -6,4 +6,4 @@ imageio
 imageio[ffmpeg]
 pyyaml
 cachetools
-pydantic==1.10.13
+pydantic==2.5.2

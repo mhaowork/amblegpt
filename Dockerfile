@@ -49,7 +49,7 @@ ENV PATH /usr/lib/btbn-ffmpeg/bin:$PATH
 
 # Copy the application files
 
-COPY --link ["./mqtt_client.py", "./const.py", "./config.py", "./prompt.py", "./"]
+COPY --link ["./mqtt_client.py", "./const.py", "./config.py", "./prompt.py", "./version.py", "./"]
 
 # Set the entry point to the application
 CMD ["python3", "./mqtt_client.py"]

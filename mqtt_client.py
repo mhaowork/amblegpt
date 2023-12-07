@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import base64
+from email.mime import message
 import pathlib
+from re import A
 import subprocess
 from json import JSONDecodeError
 from typing import Any, Dict, List
@@ -23,12 +25,29 @@ from cachetools import TTLCache
 from string import Template
 import threading
 import queue
+from uuid import getnode as get_mac
 from typing import MutableMapping, Any, List, Dict
 from dataclasses import dataclass, field
 from config import AmbleConfig, CameraConfig, init_config
-from const import SNAPSHOT_ENDPOINT, CLIP_ENDPOINT, EVENTS_ENDPOINT, DESCRIPTION_ENDPOINT, SUB_LABEL_ENDPOINT
+from const import (
+    MQTT_HA_SWITCH_COMMAND_TOPIC,
+    MQTT_HA_SWITCH_CONFIG_TOPIC,
+    MQTT_HA_SWITCH_STATE_TOPIC,
+    SNAPSHOT_ENDPOINT, 
+    CLIP_ENDPOINT, 
+    EVENTS_ENDPOINT, 
+    DESCRIPTION_ENDPOINT, 
+    SUB_LABEL_ENDPOINT,
+    MQTT_FRIGATE_TOPIC,
+    HOMEASSISTANT_DISCOVERY,
+    MQTT_HA_SENSOR_CONFIG_TOPIC,
+    MQTT_HA_SWITCH_TOPIC,
+    OPENAI_ENDPOINT
+)
+from version import VERSION
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)-s %(asctime)s %(threadName)s: %(message)s",
+logging.basicConfig(level=logging.DEBUG, format=
+                    "%(levelname)-s %(asctime)s %(threadName)s: %(message)s",
                     datefmt='%Y-%m-%d %H:%M:%S')
 
 @dataclass(order=True)
@@ -46,6 +65,7 @@ stop_event: threading.Event = threading.Event()
 client: mqtt.Client = mqtt.Client(client_id="amblegpt-mqtt")
 usage_dict: Dict = {}
 valid_camera_list: List = []
+amblegpt_enabled = True
 
 def generate_prompt(event_start_time: str, camera_name: str) -> str:
     templated_prompt = Template(config.prompt.prompt)
@@ -56,6 +76,35 @@ def generate_prompt(event_start_time: str, camera_name: str) -> str:
         CAMERA_PROMPT=config.cameras[camera_name].prompt
     )
 
+def get_unique_identifier() -> str:
+    return str(get_mac())
+
+def append_ha_availability_payload(payload: dict):
+    payload["availability"] = [
+        {"topic": f"{config.mqtt.topic_prefix}/status"},
+    ]
+    payload["device"] = {
+        "name": "AmbleGPT",
+        "sw_version": VERSION,
+        "identifiers": [ f"{config.mqtt.ha_unique_id}" ],
+        }
+    payload["unique_id"] = payload["unique_id"].format(config.mqtt.ha_unique_id)
+
+    if "{}" in payload["state_topic"] and MQTT_HA_SWITCH_TOPIC not in payload["state_topic"]:
+        payload["state_topic"] = payload["state_topic"].format(
+            config.mqtt.topic_prefix
+        )
+
+    if "{}" in payload["state_topic"] and MQTT_HA_SWITCH_TOPIC in payload["state_topic"]:
+        payload["state_topic"] = payload["state_topic"].format(
+            payload["unique_id"]
+        ) 
+
+    if "command_topic" in payload:
+        payload["command_topic"] = payload["command_topic"].format(
+            payload["unique_id"]
+        )
+    return payload
 
 def get_local_time_str(ts: float):
     # convert the timestamp to a datetime object in the local timezone
@@ -99,7 +148,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames,
     }
 
     return requests.post(
-        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
+        OPENAI_ENDPOINT, headers=headers, json=payload
     )
 
 
@@ -220,7 +269,7 @@ def download_snapshot_and_combine_frames(event_id, gap_secs):
     return frame_list
 
 
-def download_video_clip_and_extract_frames(event_id: str, gap_secs: int) -> list:
+def download_video_clip_and_extract_frames(event_id, gap_secs):
     f"""
     download video clip for event id and extract frames every gap_secs
     :param event_id: frigate event id to fetch
@@ -255,7 +304,7 @@ def download_video_clip_and_extract_frames(event_id: str, gap_secs: int) -> list
         return []
 
 
-def process_message(payload) -> None:
+def process_message(payload):
     global ongoing_tasks
     global usage_dict
     try:
@@ -369,10 +418,32 @@ def on_connect(client: mqtt.Client, userdata, flags, rc):
     if rc > 0:
         logging.debug(f"Connected with result code {str(rc)}")
     # Subscribe to the topic
-    client.subscribe("frigate/events")
+    client.subscribe(MQTT_FRIGATE_TOPIC)
     client.subscribe(f"{config.mqtt.topic_prefix}/token_usage", qos=1)
     logging.info("Subscribed to topic: frigate/events")
     client.publish(f"{config.mqtt.topic_prefix}/status", "online", retain=True)
+
+    if config.homeassistant.autodiscovery:
+        ha_device_list = [k  for  k in  HOMEASSISTANT_DISCOVERY.keys()]
+        for device in ha_device_list:
+            if device == "switch":
+                #formated_payload = append_ha_availability_payload(HOMEASSISTANT_DISCOVERY[device])
+                #formatted_topic = MQTT_HA_SWITCH_CONFIG_TOPIC.format(formated_payload["unique_id"])
+                client.publish(topic=config.mqtt.switch_config_topic, 
+                               payload=json.dumps(append_ha_availability_payload(HOMEASSISTANT_DISCOVERY[device])), 
+                               retain=True)
+            elif device.endswith("_tokens") or device.endswith("_cost"):
+                #formated_payload = append_ha_availability_payload(HOMEASSISTANT_DISCOVERY[device])
+                #formatted_topic = MQTT_HA_SENSOR_CONFIG_TOPIC.format(formated_payload["unique_id"])
+                client.publish(topic=MQTT_HA_SENSOR_CONFIG_TOPIC.format(f"{config.mqtt.ha_unique_id}_{device}"),
+                       payload=json.dumps(append_ha_availability_payload(HOMEASSISTANT_DISCOVERY[device])),
+                       retain=True)
+        
+        client.publish(config.mqtt.switch_state_topic, "ON")
+        client.subscribe(config.mqtt.switch_command_topic)
+        #client.publish(MQTT_HA_SWITCH_STATE_TOPIC.format(f"{get_unique_identifier()}_switch"), "ON")
+        #client.subscribe(MQTT_HA_SWITCH_COMMAND_TOPIC.format(f"{get_unique_identifier()}_switch"))
+
     
 
 def on_publish(client, userdata, mid):
@@ -381,6 +452,7 @@ def on_publish(client, userdata, mid):
 
 def on_message(client, userdata, msg):
     global ongoing_tasks
+    global valid_camera_list
     try:
         # Parse the message payload as JSON
         payload = json.loads(msg.payload.decode("utf-8"))
@@ -391,7 +463,7 @@ def on_message(client, userdata, msg):
         logging.debug(f"Received MQTT message for event: {event_id}")
         
         if camera not in valid_camera_list:
-            logging.debug(f"Not a valid camera for analysis")
+            logging.debug(f"{camera} is not a valid camera for analysis, not in {valid_camera_list}")
 
         if event_id in ongoing_tasks:
             logging.debug(f"Not processing running event: {event_id}")
@@ -454,7 +526,7 @@ def publish_message():
     while True:
         priority_message = outgoing_message_queue.get()
         message = priority_message.item
-        print(message)
+
         if message[0] == "" and message[1] == "":
             logging.warning("Publishing thread received exit signal, terminating...")
             break
@@ -477,9 +549,29 @@ def handle_token_usage(client, userdata, msg):
     logging.info("unsubscribing from history")
     client.unsubscribe(f"{config.mqtt.topic_prefix}/token_usage")
 
+
+def handle_ha_mmessage(client, userdata, msg):
+    global amblegpt_enabled
+    command = msg.payload.decode("utf-8").upper()
+    logging.info(f"received ha command state: {command}")
+    if command == "OFF" and amblegpt_enabled:
+        client.unsubscribe(MQTT_FRIGATE_TOPIC)
+        client.publish(f"{MQTT_HA_SWITCH_STATE_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
+                       "OFF")
+        amblegpt_enabled = False
+        logging.info("home assistant switch disabled processing, unsubscribing")
+    if command == "ON" and not amblegpt_enabled:
+        client.subscribe(MQTT_FRIGATE_TOPIC)
+        amblegpt_enabled = True
+        client.publish(f"{MQTT_HA_SWITCH_STATE_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
+                       "ON")
+        logging.info("home assistant switch enabled processing, subscribing")
+
+
 def main():
     global client
     global mqtt_publish_thread
+    global valid_camera_list
     logging.info(f"ffmpeg for video processing is enabled: {is_ffmpeg_available()}")
     # Create a client instance
     #client = mqtt.Client()
@@ -489,8 +581,18 @@ def main():
     # Assign event callbacks
     client.message_callback_add(sub=f"{config.mqtt.topic_prefix}/token_usage",
                                 callback=handle_token_usage)
+    
+    if config.homeassistant.autodiscovery:
+        client.message_callback_add(sub=f"{MQTT_HA_SWITCH_COMMAND_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
+                                    callback=handle_ha_mmessage)
+        
+    client.message_callback_add(
+        sub=MQTT_FRIGATE_TOPIC,
+        callback=on_message
+    )
+        
     client.on_connect = on_connect
-    client.on_message = on_message
+    #client.on_message = on_message
     client.on_publish = on_publish
     # Set last will
     client.will_set(
@@ -499,6 +601,10 @@ def main():
         qos=1,
         retain=True
     )
+
+    for name, camera in config.cameras.items():
+        if camera.enabled:
+            valid_camera_list.append(name)
     # mqtt connect
     try:
         client.connect(config.mqtt.host, config.mqtt.port)

@@ -1,13 +1,21 @@
 from re import A
 import yaml
 from enum import Enum
-from pydantic import BaseModel, Extra, Field, validator
+from pydantic import BaseModel, Field, validator, computed_field
 from collections import Counter
 from typing import Dict, List, Optional, Tuple, Union
-from const import YAML_EXT, REGEX_CAMERA_NAME
+from const import YAML_EXT
 from prompt import SYSTEM_PROMPT, DEFAULT_PROMPT
 import json
 import os
+from uuid import getnode as get_mac
+
+from const import (
+    MQTT_HA_SWITCH_COMMAND_TOPIC,
+    MQTT_HA_SWITCH_CONFIG_TOPIC,
+    MQTT_HA_SWITCH_STATE_TOPIC,
+)
+
 
 def load_config_with_no_duplicates(raw_config) -> dict:
     """Get config ensuring duplicate keys are not allowed."""
@@ -37,11 +45,9 @@ def load_config_with_no_duplicates(raw_config) -> dict:
     return yaml.load(raw_config, PreserveDuplicatesLoader)
 
 
-DEFAULT_TRACKED_OBJECTS = ["person"]
-
 class AmbleBaseModel(BaseModel):
     class Config:
-        extra = Extra.forbid    
+        extra = "allow"
 
 class MQTTConfig(BaseModel):
     host: str = Field(default="", title="MQTT Host")
@@ -56,11 +62,31 @@ class MQTTConfig(BaseModel):
         if (v is None) != (values["user"] is None):
             raise ValueError("Password must be provided with username.")
         return v
+    
+    @computed_field
+    @property
+    def ha_unique_id(self) -> str:
+        return str(get_mac())
+    
+    @computed_field(alias="switch_command_topic", description="MQTT switch command topic for HA autodiscovery")
+    @property
+    def switch_command_topic(self) -> str:
+        return MQTT_HA_SWITCH_COMMAND_TOPIC.format(f"{self.ha_unique_id}_switch")
+    
+    @computed_field(alias="switch_config_topic", description="MQTT switch config topic for HA autodiscovery")
+    @property
+    def switch_config_topic(self) -> str:
+        return MQTT_HA_SWITCH_CONFIG_TOPIC.format(f"{self.ha_unique_id}_switch")
+
+    @computed_field(alias="switch_state_topic", description="MQTT switch state topic for HA autodiscovery")
+    @property
+    def switch_state_topic(self) -> str:
+        return MQTT_HA_SWITCH_STATE_TOPIC.format(f"{self.ha_unique_id}_switch")
 
 class FrigateConfig(AmbleBaseModel):
     host: str = Field(default="", title="Frigate Host")
     port: int = Field(default=5000, title="Frigate Port")
-    tracked_objects: List[str] = Field(default=DEFAULT_TRACKED_OBJECTS, title="Objects to track.")
+    tracked_objects: List[str] = Field(default=["person"], title="Objects to track.")
     update_label:  bool = Field(default=False, title="Update the frigate sublabel")
     update_description: bool = Field(default=False, title="Update the frigate description field, currently not available in released frigate")
 
@@ -70,7 +96,7 @@ class ImageQualityEnum(str, Enum):
 
 class ImageConfig(AmbleBaseModel):
     interval: int = Field(
-        default=4, title="Number of seconds between frames to use for submission"
+        default=3, title="Number of seconds between frames to use for submission"
     )
     frame_size: int = Field(
         default=512, title="Resolution of use for resizing the image, on largest side"
@@ -79,18 +105,12 @@ class ImageConfig(AmbleBaseModel):
         default=10, title="Maximum number of frames to capture per event"
     )
     min_frames: int = Field(
-        default=10, title="Minimum number of frames to capture per event"
+        default=2, title="Minimum number of frames to capture per event"
     )
     image_quality: ImageQualityEnum = Field(
         default=ImageQualityEnum.low, title="Image quality chatGPT will use for processing"
     )
-    # @model_validator(mode='after')
-    # def check_image_quality(self) -> 'ImageConfig':
-    #     size = self.frame_size
-    #     quality = self.image_quality
-    #     if size > 512 and quality is ImageQualityEnum.high:
-    #         raise ValueError('For frame size over 512 image_quality must be set to high')
-        
+
 class EventConfig(AmbleBaseModel):
     clips: bool = Field(default=True, title="Enable using video clips for image capture")
     snapshots: bool = Field(default=False, title="Enable using snapshots for image capture")
@@ -105,7 +125,7 @@ class EventConfig(AmbleBaseModel):
         return v
 
 class CameraConfig(AmbleBaseModel):
-    name: Optional[str] = Field(title="Camera name.", regex=REGEX_CAMERA_NAME)
+    name: str = Field(default=None, title="Camera name.")
     enabled: bool = Field(default=True, title="Enable camera, trigger on events.")
     prompt: Optional[str] = Field(title="Custom prompt for camera.")
 
@@ -124,9 +144,13 @@ class PromptConfig(AmbleBaseModel):
     language: str = Field(default="english", title="GPT language")
     max_tokens: int = Field(default=500, title="Max tokens to allow per message")
 
+class HAConfig(AmbleBaseModel):
+    autodiscovery: bool = Field(default=False, title="Enable Home Assistant Auto Discovery")
+
+
 class LoggerConfig(AmbleBaseModel):
     default: LogLevelEnum = Field(
-        default=LogLevelEnum.info, title="Default logging level."
+        default=LogLevelEnum.debug, title="Default logging level."
     )
 
 class AmbleConfig(AmbleBaseModel):
@@ -138,15 +162,17 @@ class AmbleConfig(AmbleBaseModel):
                                title="Image/Video frame Configuration.")
     event: EventConfig = Field(default_factory=EventConfig,
                                title="Event/Trigger Configurations.")
-    cameras: Dict[str, CameraConfig] = Field(title="Camera configuration.")
+    cameras: Dict[str, CameraConfig] = Field(default_factory=CameraConfig, title="Camera configuration.")
     prompt: PromptConfig = Field(default_factory=PromptConfig,
                                  title="Prompt template configurations")
+    homeassistant: HAConfig = Field(default_factory=HAConfig,
+                                    title="Home Assistant configurations")
     logger: LoggerConfig = Field(
         default_factory=LoggerConfig, title="Logging configuration."
     )
-
+    
     @classmethod
-    def parse_file(cls, config_file):
+    def parse_file(cls, config_file="config.yml"):
         with open(config_file) as f:
             raw_config = f.read()
 
@@ -155,12 +181,11 @@ class AmbleConfig(AmbleBaseModel):
         elif config_file.endswith(".json"):
             config = json.loads(raw_config)
 
-        return cls.parse_obj(config)
-
-    @classmethod
-    def parse_raw(cls, raw_config):
-        config = load_config_with_no_duplicates(raw_config)
-        return cls.parse_obj(config)
+        return cls.model_validate(config)
+    # @classmethod
+    # def parse_raw(cls, raw_config):
+    #     config = load_config_with_no_duplicates(raw_config)
+    #     return cls.parse_obj(config)
     
 
 def init_config() -> AmbleConfig:
