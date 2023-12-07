@@ -29,6 +29,12 @@ jobs:
         uses: ./.github/actions/setup
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to the Container registry
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push amd64 standard build
         uses: docker/build-push-action@v5
         with:
@@ -49,6 +55,12 @@ jobs:
         uses: ./.github/actions/setup
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to the Container registry
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push arm64 standard build
         uses: docker/build-push-action@v5
         with:
