@@ -98,4 +98,4 @@ jobs:
           tags: ghcr.io/${{ steps.lowercaseRepo.outputs.lowercase }}:${{ github.ref_name }}-${{ env.SHORT_SHA }}
           suffixes: |
             -amd64
-            -rpi
+            -arm64
