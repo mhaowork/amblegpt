@@ -138,6 +138,7 @@ class LogLevelEnum(str, Enum):
     critical = "critical"
 
 
+
 class PromptConfig(AmbleBaseModel):
     system: str = Field(default=SYSTEM_PROMPT, title="System prompt template")
     prompt: str = Field(default=DEFAULT_PROMPT, title="Default prompt template")

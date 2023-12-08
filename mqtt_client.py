@@ -45,8 +45,9 @@ from const import (
     OPENAI_ENDPOINT
 )
 from version import VERSION
+config: AmbleConfig = init_config()
 
-logging.basicConfig(level=logging.DEBUG, format=
+logging.basicConfig(level=config.logger.default.value.upper(), format=
                     "%(levelname)-s %(asctime)s %(threadName)s: %(message)s",
                     datefmt='%Y-%m-%d %H:%M:%S')
 
@@ -54,8 +55,6 @@ logging.basicConfig(level=logging.DEBUG, format=
 class PrioritizedItem:
     priority: int
     item: Any=field(compare=False)
-
-config: AmbleConfig = init_config()
 
 outgoing_message_queue = queue.PriorityQueue(maxsize=20)
 ongoing_tasks: MutableMapping[str, threading.Thread] = TTLCache(maxsize=1000, ttl=timedelta(hours=4), timer=datetime.now)
@@ -520,11 +519,10 @@ def on_message(client, userdata, msg):
 
 
 def publish_message():
-    retainFlag = False
-    qosFlag = 1
-
     while True:
         priority_message = outgoing_message_queue.get()
+        retainFlag = False
+        qosFlag = 1
         message = priority_message.item
 
         if message[0] == "" and message[1] == "":
@@ -556,15 +554,17 @@ def handle_ha_mmessage(client, userdata, msg):
     logging.info(f"received ha command state: {command}")
     if command == "OFF" and amblegpt_enabled:
         client.unsubscribe(MQTT_FRIGATE_TOPIC)
-        client.publish(f"{MQTT_HA_SWITCH_STATE_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
-                       "OFF")
+        #client.publish(f"{MQTT_HA_SWITCH_STATE_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
+        #               "OFF")
+        client.publish(config.mqtt.switch_state_topic, "OFF")
         amblegpt_enabled = False
         logging.info("home assistant switch disabled processing, unsubscribing")
     if command == "ON" and not amblegpt_enabled:
         client.subscribe(MQTT_FRIGATE_TOPIC)
         amblegpt_enabled = True
-        client.publish(f"{MQTT_HA_SWITCH_STATE_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
-                       "ON")
+        #client.publish(f"{MQTT_HA_SWITCH_STATE_TOPIC.format(f'{config.mqtt.ha_unique_id}_switch')}",
+        #               "ON")
+        client.publish(config.mqtt.switch_state_topic, "ON")
         logging.info("home assistant switch enabled processing, subscribing")
 
 
@@ -575,6 +575,7 @@ def main():
     logging.info(f"ffmpeg for video processing is enabled: {is_ffmpeg_available()}")
     # Create a client instance
     #client = mqtt.Client()
+
     if config.mqtt.user is not None:
         client.username_pw_set(username=config.mqtt.user,
                             password=config.mqtt.password)
