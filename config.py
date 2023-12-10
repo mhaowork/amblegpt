@@ -14,6 +14,9 @@ from const import (
     MQTT_HA_SWITCH_COMMAND_TOPIC,
     MQTT_HA_SWITCH_CONFIG_TOPIC,
     MQTT_HA_SWITCH_STATE_TOPIC,
+    MQTT_HA_TEXT_CONFIG_TOPIC,
+    MQTT_HA_TEXT_COMMAND_TOPIC,
+    MQTT_HA_TEXT_STATE_TOPIC,
 )
 
 
@@ -82,6 +85,12 @@ class MQTTConfig(BaseModel):
     @property
     def switch_state_topic(self) -> str:
         return MQTT_HA_SWITCH_STATE_TOPIC.format(f"{self.ha_unique_id}_switch")
+
+    @computed_field(alias="text_state_topic", description="MQTT text state topic for HA autodiscovery")
+    @property
+    def text_state_topic(self) -> str:
+        return MQTT_HA_TEXT_STATE_TOPIC.format(f"{self.ha_unique_id}_last_summary")
+
 
 class FrigateConfig(AmbleBaseModel):
     host: str = Field(default="", title="Frigate Host")

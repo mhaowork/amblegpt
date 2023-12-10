@@ -33,6 +33,8 @@ from const import (
     MQTT_HA_SWITCH_COMMAND_TOPIC,
     MQTT_HA_SWITCH_CONFIG_TOPIC,
     MQTT_HA_SWITCH_STATE_TOPIC,
+    MQTT_HA_TEXT_CONFIG_TOPIC,
+    MQTT_HA_TEXT_COMMAND_TOPIC,
     SNAPSHOT_ENDPOINT, 
     CLIP_ENDPOINT, 
     EVENTS_ENDPOINT, 
@@ -42,7 +44,8 @@ from const import (
     HOMEASSISTANT_DISCOVERY,
     MQTT_HA_SENSOR_CONFIG_TOPIC,
     MQTT_HA_SWITCH_TOPIC,
-    OPENAI_ENDPOINT
+    OPENAI_ENDPOINT,
+    MQTT_HA_TEXT_TOPIC
 )
 from version import VERSION
 config: AmbleConfig = init_config()
@@ -89,18 +92,24 @@ def append_ha_availability_payload(payload: dict):
         }
     payload["unique_id"] = payload["unique_id"].format(config.mqtt.ha_unique_id)
 
-    if "{}" in payload["state_topic"] and MQTT_HA_SWITCH_TOPIC not in payload["state_topic"]:
+    if ("{}" in payload["state_topic"] and MQTT_HA_SWITCH_TOPIC not in payload["state_topic"] and MQTT_HA_TEXT_TOPIC
+            not in payload["state_topic"]):
         payload["state_topic"] = payload["state_topic"].format(
             config.mqtt.topic_prefix
         )
 
-    if "{}" in payload["state_topic"] and MQTT_HA_SWITCH_TOPIC in payload["state_topic"]:
+    if "{}" in payload["state_topic"] and ( MQTT_HA_SWITCH_TOPIC in payload["state_topic"] or MQTT_HA_TEXT_TOPIC in payload["state_topic"]):
         payload["state_topic"] = payload["state_topic"].format(
             payload["unique_id"]
         ) 
 
     if "command_topic" in payload:
         payload["command_topic"] = payload["command_topic"].format(
+            payload["unique_id"]
+        )
+
+    if "json_attributes_topic" in payload:
+        payload["json_attributes_topic"] = payload["json_attributes_topic"].format(
             payload["unique_id"]
         )
     return payload
@@ -263,7 +272,7 @@ def download_snapshot_and_combine_frames(event_id, gap_secs):
             retry_attempts += 1
             if retry_attempts > 5:
                 logging.info("Image Could not be retrieved")
-                return []
+                return frame_list
         time.sleep(float(gap_secs) - ((time.monotonic() - start_time) % float(gap_secs)))
     return frame_list
 
@@ -354,7 +363,7 @@ def process_message(payload):
 
         # Set the summary to the 'after' field
         payload["after"]["summary"] = result["summary"]
-        payload["after"]["summary_title"] = result["title"]
+        payload["after"]["title"] = result["title"]
 
         if result["num_persons"] > 0:
             payload["after"]["summary_details"] = result["persons"]
@@ -368,11 +377,15 @@ def process_message(payload):
                         description += f" {key}: {person[key]}, "
 
                     description_stripped = description.strip()
-                    description = description_stripped + "."
-            trimmed_description = description.strip()
+                    description = description_stripped
+            trimmed_description = description.strip()[:-1]
             payload["after"]["description"] = trimmed_description
             url = f"http://{config.frigate.host}:{config.frigate.port}{DESCRIPTION_ENDPOINT.format(event_id)}"
-            request = requests.post(url, json={"description": trimmed_description})
+            request = requests.post(url, json=
+                                    {"description": trimmed_description,
+                                     "title": result["title"],
+                                     "summary": result["summary"]
+                                     })
             if request.status_code == 200:
                 logging.debug(f"Frigate description updated with summary for event: {event_id}")
             else:
@@ -386,6 +399,7 @@ def process_message(payload):
                 logging.debug(f"Frigate sub_label updated with summary for event: {event_id}")
             else:
                 logging.error(f"Failed sub_label Frigate description for event: {event_id}")
+
 
         outgoing_message_queue.put(
             PrioritizedItem(20, (f"{config.mqtt.topic_prefix}/events", payload))
@@ -403,11 +417,24 @@ def process_message(payload):
                               usage_dict))
             )
 
+        if config.homeassistant.autodiscovery:
+            ha_attribute_dict = {
+                "camera": payload["after"]["camera"],
+                "event_id": payload["after"]["id"],
+                "title": result["title"]
+            }
+            ha_text_dict = {
+                "text": result["summary"],
+                "attributes": ha_attribute_dict
+            }
+
+            outgoing_message_queue.put(
+                PrioritizedItem(20, (config.mqtt.text_state_topic, ha_text_dict))
+            )
     except JSONDecodeError as ex:
         logging.error(f"Exception: {ex}")
         logging.error(f"Json response from GPT was received with incorrect structure.")
     except Exception as ex:
-        logging.exception(f"Error processing video for event {event_id}")
         logging.error(f"Exception: {ex}")
 
 
@@ -437,8 +464,13 @@ def on_connect(client: mqtt.Client, userdata, flags, rc):
                 client.publish(topic=MQTT_HA_SENSOR_CONFIG_TOPIC.format(f"{config.mqtt.ha_unique_id}_{device}"),
                        payload=json.dumps(append_ha_availability_payload(HOMEASSISTANT_DISCOVERY[device])),
                        retain=True)
-        
+            elif device.endswith("_summary"):
+                client.publish(topic=MQTT_HA_TEXT_CONFIG_TOPIC.format(f"{config.mqtt.ha_unique_id}_{device}"),
+                               payload=json.dumps(append_ha_availability_payload(HOMEASSISTANT_DISCOVERY[device])),
+                               retain=True)
+
         client.publish(config.mqtt.switch_state_topic, "ON")
+        client.publish(config.mqtt.text_state_topic, json.dumps({"text": "starting..."}))
         client.subscribe(config.mqtt.switch_command_topic)
         #client.publish(MQTT_HA_SWITCH_STATE_TOPIC.format(f"{get_unique_identifier()}_switch"), "ON")
         #client.subscribe(MQTT_HA_SWITCH_COMMAND_TOPIC.format(f"{get_unique_identifier()}_switch"))
@@ -463,6 +495,7 @@ def on_message(client, userdata, msg):
         
         if camera not in valid_camera_list:
             logging.debug(f"{camera} is not a valid camera for analysis, not in {valid_camera_list}")
+            return
 
         if event_id in ongoing_tasks:
             logging.debug(f"Not processing running event: {event_id}")
@@ -530,6 +563,7 @@ def publish_message():
             break
         elif message[0] == f"{config.mqtt.topic_prefix}/token_usage":
             retainFlag = True
+            qosFlag = 1
         
         publish_results = client.publish(message[0], json.dumps(message[1]), qos=qosFlag, retain=retainFlag)
         logging.info(f"Publishing updated payload with summary back to MQTT topic.")
@@ -606,6 +640,7 @@ def main():
     for name, camera in config.cameras.items():
         if camera.enabled:
             valid_camera_list.append(name)
+    logging.info(f"Valid vamera list include: {valid_camera_list}")
     # mqtt connect
     try:
         client.connect(config.mqtt.host, config.mqtt.port)

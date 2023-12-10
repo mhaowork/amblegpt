@@ -4,6 +4,7 @@ YAML_EXT = (".yaml", ".yml")
 MQTT_FRIGATE_TOPIC = "frigate/events"
 
 MQTT_HA_SWITCH_TOPIC = "homeassistant/switch/{}"
+MQTT_HA_TEXT_TOPIC = "homeassistant/text/{}"
 MQTT_HA_BASE_SENSOR_TOPIC = "homeassistant/sensor/{}"
 
 MQTT_HA_SENSOR_CONFIG_TOPIC = MQTT_HA_BASE_SENSOR_TOPIC + "/config"
@@ -12,6 +13,9 @@ MQTT_HA_SWITCH_CONFIG_TOPIC = MQTT_HA_SWITCH_TOPIC + "/config"
 MQTT_HA_SWITCH_COMMAND_TOPIC = MQTT_HA_SWITCH_TOPIC + "/set"
 MQTT_HA_SWITCH_STATE_TOPIC = MQTT_HA_SWITCH_TOPIC + "/state"
 
+MQTT_HA_TEXT_CONFIG_TOPIC = MQTT_HA_TEXT_TOPIC + "/config"
+MQTT_HA_TEXT_COMMAND_TOPIC = MQTT_HA_TEXT_TOPIC + "/set"
+MQTT_HA_TEXT_STATE_TOPIC = MQTT_HA_TEXT_TOPIC + "/state"
 
 EVENTS_ENDPOINT = "/api/events/{}"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
@@ -30,34 +34,30 @@ HOMEASSISTANT_DISCOVERY = {
     },
 "prompt_tokens": {
     "name": "Prompt Tokens Used",
-    "state_class": "measurement",
     "icon": "mdi:counter",
     "value_template": "{{ value_json.prompt_tokens }}",
     "unique_id": "{}_prompt_tokens",
     "state_class": "total_increasing",
     "state_topic": "{}/token_usage",
-},
+    },
 "completion_tokens": {
     "name": "Completion Tokens Used",
-    "state_class": "measurement",
     "icon": "mdi:counter",
     "value_template": "{{ value_json.completion_tokens }}",
     "unique_id": "{}_completion_tokens",
     "state_class": "total_increasing",
     "state_topic": "{}/token_usage",
-},
+    },
 "total_tokens": {
     "name": "Total Tokens Used",
-    "state_class": "measurement",
     "icon": "mdi:counter",
     "value_template": "{{ value_json.total_tokens }}",
     "unique_id": "{}_total_tokens",
     "state_class": "total_increasing",
     "state_topic": "{}/token_usage",
-},
+    },
 "total_cost": {
     "name": "Approximate Cost",
-    "state_class": "measurement",
     "device_class": "monetary",
     "icon": "mdi:currency-usd",
     "unit_of_measurement": "$",
@@ -65,5 +65,16 @@ HOMEASSISTANT_DISCOVERY = {
     "state_class": "total_increasing",
     "state_topic": "{}/token_usage",
     "value_template": COST_TEMPLATE_STRING,
-}
+    },
+"last_summary": {
+    "name": "Last AmbleGPT Message",
+    "icon": "mdi:message-alert-outline",
+    "mode": "text",
+    "command_topic": MQTT_HA_TEXT_COMMAND_TOPIC,
+    "state_topic": MQTT_HA_TEXT_STATE_TOPIC,
+    "value_template": "{{ value_json.text }}",
+    "json_attributes_topic": MQTT_HA_TEXT_STATE_TOPIC,
+    "json_attributes_template": "{{ value_json.attributes }}",
+    "unique_id": "{}_last_summary",
+    }
 }

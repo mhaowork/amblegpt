@@ -1,7 +1,7 @@
 default_target: local
 
 COMMIT_HASH := $(shell git log -1 --pretty=format:"%h"|tail -1)
-VERSION = 0.4.8
+VERSION = 0.5.1
 #IMAGE_REPO ?= ghcr.io/irakhlin/amblegpt
 IMAGE_REPO ?= irakhlin/amblegpt
 GITHUB_REF_NAME ?= $(shell git rev-parse --abbrev-ref HEAD)
@@ -24,7 +24,7 @@ build:  version amd64 arm64
 	docker buildx build --platform linux/arm64/v8,linux/amd64 --tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) --file ./Dockerfile .
 
 push:
-	docker buildx build --push --platform linux/arm64/v8,linux/amd64 --tag $(IMAGE_REPO):${GITHUB_REF_NAME}-$(COMMIT_HASH) --file ./Dockerfile .
+	docker buildx build --push --platform linux/arm64/v8,linux/amd64 --tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) --file ./Dockerfile .
 
 push2:
-	docker buildx build --push --platform linux/amd64 --tag $(IMAGE_REPO):${VERSION}-$(COMMIT_HASH) --file ./Dockerfile .
+	docker buildx build --push --platform linux/amd64 --tag $(IMAGE_REPO):$(VERSION)-$(COMMIT_HASH) --file ./Dockerfile .
