@@ -131,7 +131,7 @@ def get_local_time_str(ts: float):
 
 
 def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
-    logging.info("prompting GPT-4v")
+    logging.info("prompting GPT")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
@@ -155,7 +155,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
         },
     ]
     payload = {
-        "model": "gpt-4-vision-preview",
+        "model": "gpt-4o",
         "messages": PROMPT_MESSAGES,
         "max_tokens": 200,
     }
