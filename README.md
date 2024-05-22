@@ -1,6 +1,6 @@
 # AmbleGPT
 
-Video surveilance footage analyst powered by GPT-4 Vision.
+Video surveilance footage analyst powered by GPT-4o.
 
 ## Summary
 
@@ -10,6 +10,7 @@ AmbleGPT is activated by a Frigate event via MQTT and analyzes the event clip us
 
 
 ## Recent Updates
+* Update to using GPT-4o. Half the price and better vision performance.
 * An option `add_ha_switch` for adding a Switch in Home Assistant to allow turning off AmbleGPT when AI summary is not needed. Also see [Home Assistant Switch](#home-assistant-switch) section below. (2023-12-03)
 * An option for less verbose summary: see `verbose_summary_mode` below (2023-11-30)
 * Use ffmpeg (if available) for sampling video . Thanks @skrashevich for the contribution (2023-11-30)
