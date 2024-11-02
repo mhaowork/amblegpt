@@ -106,6 +106,10 @@ VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
 
 ADD_HA_SWITCH = config.get("add_ha_switch", False)
 
+EVENT_TYPES = config.get("event_types", None)
+
+MODEL = config.get("model", "gpt-4o")
+
 
 def get_camera_prompt(camera_name):
     # Retrieve custom prompt for a specific camera
@@ -155,7 +159,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
         },
     ]
     payload = {
-        "model": "gpt-4o",
+        "model": MODEL,
         "messages": PROMPT_MESSAGES,
         "max_tokens": 200,
     }
@@ -375,6 +379,10 @@ def on_message(client, userdata, msg):
     event_id = None
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
+        if EVENT_TYPES is not None and payload["after"]["label"] not in EVENT_TYPES:
+            # Skip if the event type is not in the list of allowed event types
+            logging.info(f"Skipping event because of event type {payload['after']['label']}")
+            return
         if "summary" in payload["after"] and payload["after"]["summary"]:
             # Skip if this message has already been processed. To prevent echo loops
             logging.info("Skipping message that has already been processed")
