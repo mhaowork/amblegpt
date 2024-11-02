@@ -8,6 +8,11 @@ mqtt_password: YOUR_MQTT_PASSWORD # optional
 verbose_summary_mode: false #optional, default true
 
 #more optional configs are below
+model: gpt-4o #optional
+
+#event_types: #optional, if not provided, all labels will be used 
+#  - person
+
 
 prompt: > #optional
   If necessary, uncomment this and use your prompt here
