@@ -313,7 +313,7 @@ def process_message(payload):
 
         # Publish the updated payload back to the MQTT topic
         # Create a new MQTT client
-        client = mqtt.Client()
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         if MQTT_USERNAME is not None:
             client.username_pw_set(MQTT_USERNAME, password=MQTT_PASSWORD)
 
@@ -329,10 +329,10 @@ def process_message(payload):
 
 
 # Define what to do when the client connects to the broker
-def on_connect(client, userdata, flags, rc):
-    logging.info("Connected with result code " + str(rc))
-    if rc > 0:
-        print("Connected with result code", rc)
+def on_connect(client, userdata, flags, reason_code, properties):
+    logging.info("Connected with reason code " + str(reason_code))
+    if reason_code > 0:
+        print("Connected with reason code", reason_code)
         return
     TOPICS_TO_SUBSCRIBE = [MQTT_FRIGATE_TOPIC]
 
@@ -426,7 +426,7 @@ def handle_sigterm(client, signum, frame):
 
 if __name__ == "__main__":
     # Create a client instance
-    client = mqtt.Client()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
     # Assign event callbacks
     client.on_connect = on_connect
