@@ -42,8 +42,8 @@ MQTT_PASSWORD = config.get("mqtt_password", "")
 # Define Frigate server details for thumbnail retrieval
 FRIGATE_SERVER_IP = config["frigate_server_ip"]
 FRIGATE_SERVER_PORT = config.get("frigate_server_port", 5000)
-THUMBNAIL_ENDPOINT = "/api/review/{}/thumbnail.jpg"
-CLIP_ENDPOINT = "/api/review/{}/clip.mp4"
+THUMBNAIL_ENDPOINT = "/api/events/{}/thumbnail.jpg"
+CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
 
 # Video frame sampling settings
 GAP_SECS = 3
@@ -398,7 +398,7 @@ def on_message(client, userdata, msg):
                 "Skipping because the message with this snapshot is already (being) processed"
             )
             return
-        if not payload["after"]["has_clip"]:
+        if not payload["after"]["thumb_path"]:
             # Skip if this snapshot has already been processed
             logging.info("Skipping because of no available video clip yet")
             return
