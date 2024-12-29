@@ -106,7 +106,7 @@ VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
 
 ADD_HA_SWITCH = config.get("add_ha_switch", False)
 
-REVIEW_TYPES = config.get("REVIEW_TYPES", None)
+REVIEW_TYPES = config.get("review_types", None)
 
 MODEL = config.get("model", "gpt-4o")
 
