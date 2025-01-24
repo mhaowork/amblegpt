@@ -8,7 +8,22 @@ mqtt_password: YOUR_MQTT_PASSWORD # optional
 verbose_summary_mode: false #optional, default true
 
 #more optional configs are below
-model: gpt-4o #optional
+
+# if running a local llm server, change host/protocol/port as needed
+
+# e.g. if you run ollama in docker-compose with container name of ollama:
+# openai_api_host: ollama
+# openai_api_port 11434
+# openai_api_protocol: http
+
+openai_api_host: "api.openai.com"
+openai_api_port: 443
+openai_api_protocol: "https"
+
+# if running locally, install a vision-enabled model e.g.:
+# $ ollama pull hhao/openbmb-minicpm-llama3-v-2_5
+
+model: gpt-4o 
 
 #event_types: #optional, if not provided, all labels will be used 
 #  - person
