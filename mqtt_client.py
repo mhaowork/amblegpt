@@ -45,6 +45,12 @@ FRIGATE_SERVER_PORT = config.get("frigate_server_port", 5000)
 THUMBNAIL_ENDPOINT = "/api/events/{}/thumbnail.jpg"
 CLIP_ENDPOINT = "/api/events/{}/clip.mp4"
 
+
+#openai
+OPENAI_API_HOST = config.get("openai_api_host", "api.openai.com")
+OPENAI_API_PORT = config.get("openai_api_port", 443)
+OPENAI_API_PROTOCOL = config.get("openai_api_protocol", "https")
+
 # Video frame sampling settings
 GAP_SECS = 3
 
@@ -165,7 +171,7 @@ def prompt_gpt4_with_video_frames(prompt, base64_frames, low_detail=True):
     }
 
     return requests.post(
-        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
+        f"{OPENAI_API_PROTOCOL}://{OPENAI_API_HOST}:{OPENAI_API_PORT}/v1/chat/completions", headers=headers, json=payload
     )
 
 
