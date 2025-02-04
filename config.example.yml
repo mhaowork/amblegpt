@@ -7,6 +7,20 @@ mqtt_username: YOUR_MQTT_USER # optional
 mqtt_password: YOUR_MQTT_PASSWORD # optional
 verbose_summary_mode: false #optional, default true
 
+###############################################################################
+# openai endpoint stuff.  if you have a local llm serving openai compatible
+# endpoints (like ollama or vllm or lm-studio), change these to hit your
+# local install.  e.g. if http://ollama.local:11434/v1 is the openai 
+# compatible endpoint you would change the below variables the following:
+# openai_api_host: localhost
+# openai_api_port: 11434
+# openai_api_protocol: http
+###############################################################################
+
+openai_api_host: api.openai.com # optional, default api.openai.com
+openai_api_port: 443 # optional, default 443
+openai_api_protocol: https # optional, default https
+
 #more optional configs are below
 model: gpt-4o #optional
 
