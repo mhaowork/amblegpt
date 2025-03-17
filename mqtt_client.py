@@ -28,8 +28,8 @@ amblegpt_enabled = True
 config = yaml.safe_load(open("config.yml", "r"))
 
 # Define the MQTT server settings
-MQTT_FRIGATE_TOPIC = "frigate/events"
-MQTT_SUMMARY_TOPIC = "frigate/events/summary"
+MQTT_FRIGATE_TOPIC = "frigate/reviews"
+MQTT_SUMMARY_TOPIC = "frigate/reviews/summary"
 MQTT_HA_SWITCH_TOPIC = "homeassistant/switch/amblegpt"
 MQTT_HA_SWITCH_CONFIG_TOPIC = MQTT_HA_SWITCH_TOPIC + "/config"
 MQTT_HA_SWITCH_COMMAND_TOPIC = MQTT_HA_SWITCH_TOPIC + "/set"
@@ -112,7 +112,7 @@ VERBOSE_SUMMARY_MODE = config.get("verbose_summary_mode", True)
 
 ADD_HA_SWITCH = config.get("add_ha_switch", False)
 
-EVENT_TYPES = config.get("event_types", None)
+REVIEW_TYPES = config.get("review_types", None)
 
 MODEL = config.get("model", "gpt-4o")
 
@@ -270,35 +270,35 @@ def extract_frames(video_path, gap_secs):
 
 
 # Function to download video clip and extract frames
-def download_video_clip_and_extract_frames(event_id, gap_secs):
-    clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(event_id)}"
+def download_video_clip_and_extract_frames(review_id, gap_secs):
+    clip_url = f"http://{FRIGATE_SERVER_IP}:{FRIGATE_SERVER_PORT}{CLIP_ENDPOINT.format(review_id)}"
     response = requests.get(clip_url)
 
     if response.status_code == 200:
         # Create a temporary directory
         temp_dir = tempfile.TemporaryDirectory()
-        clip_filename = os.path.join(temp_dir.name, f"clip_{event_id}.mp4")
+        clip_filename = os.path.join(temp_dir.name, f"clip_{review_id}.mp4")
 
-        # clip_filename = "cache_video/" + f"clip_{event_id}.mp4"
+        # clip_filename = "cache_video/" + f"clip_{review_id}.mp4"
 
         with open(clip_filename, "wb") as f:
             f.write(response.content)
-        logging.info(f"Video clip for event {event_id} saved as {clip_filename}.")
+        logging.info(f"Video clip for review {review_id} saved as {clip_filename}.")
 
         # After downloading, extract frames
         return extract_frames(clip_filename, gap_secs)
     else:
         logging.error(
-            f"Failed to retrieve video clip for event {event_id}. Status code: {response.status_code}"
+            f"Failed to retrieve video clip for review {review_id}. Status code: {response.status_code}"
         )
         return []
 
 
 def process_message(payload):
     try:
-        event_id = payload["after"]["id"]
+        review_id = payload["after"]["id"]
         video_base64_frames = download_video_clip_and_extract_frames(
-            event_id, gap_secs=GAP_SECS
+            review_id, gap_secs=GAP_SECS
         )
 
         if len(video_base64_frames) == 0:
@@ -331,11 +331,11 @@ def process_message(payload):
         client.publish(MQTT_SUMMARY_TOPIC, updated_payload_json)
         logging.info("Published updated payload with summary back to MQTT topic.")
     except Exception:
-        logging.exception(f"Error processing video for event {event_id}")
+        logging.exception(f"Error processing video for event {review_id}")
     finally:
         # Cleanup: remove the task from the ongoing_tasks dict
-        if event_id in ongoing_tasks:
-            del ongoing_tasks[event_id]
+        if review_id in ongoing_tasks:
+            del ongoing_tasks[review_id]
 
 
 # Define what to do when the client connects to the broker
@@ -379,15 +379,15 @@ def on_message(client, userdata, msg):
     if msg.topic != MQTT_FRIGATE_TOPIC:
         return
     if not amblegpt_enabled:
-        logging.info(f"Ignored Frigate event because AmbleGPT is disabled")
+        logging.info(f"Ignored Frigate review because AmbleGPT is disabled")
         return
     # Parse the message payload as JSON
-    event_id = None
+    review_id = None
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
-        if EVENT_TYPES is not None and payload["after"]["label"] not in EVENT_TYPES:
+        if REVIEW_TYPES is not None and payload["after"]["label"] not in REVIEW_TYPES:
             # Skip if the event type is not in the list of allowed event types
-            logging.info(f"Skipping event because of event type {payload['after']['label']}")
+            logging.info(f"Skipping review because of review type {payload['after']['label']}")
             return
         if "summary" in payload["after"] and payload["after"]["summary"]:
             # Skip if this message has already been processed. To prevent echo loops
@@ -397,30 +397,30 @@ def on_message(client, userdata, msg):
             payload["before"].get("snapshot_time")
             == payload["after"].get("snapshot_time")
             and (payload["type"] != "end")
-            and (event_id in ongoing_tasks)
+            and (review_id in ongoing_tasks)
         ):
             # Skip if this snapshot has already been processed
             logging.info(
                 "Skipping because the message with this snapshot is already (being) processed"
             )
             return
-        if not payload["after"]["has_clip"]:
+        if not payload["after"]["thumb_path"]:
             # Skip if this snapshot has already been processed
             logging.info("Skipping because of no available video clip yet")
             return
-        event_id = payload["after"]["id"]
-        logging.info(f"Event ID: {event_id}")
+        review_id = payload["after"]["id"]
+        logging.info(f"Review ID: {review_id}")
 
         # If there's an ongoing task for the same event, terminate it
-        if event_id in ongoing_tasks:
-            ongoing_tasks[event_id].terminate()
-            ongoing_tasks[event_id].join()  # Wait for process to terminate
-            logging.info(f"Terminated ongoing task for event {event_id}")
+        if review_id in ongoing_tasks:
+            ongoing_tasks[review_id].terminate()
+            ongoing_tasks[review_id].join()  # Wait for process to terminate
+            logging.info(f"Terminated ongoing task for event {review_id}")
 
         # Start a new task for the new message
         processing_task = Process(target=process_message, args=(payload,))
         processing_task.start()
-        ongoing_tasks[event_id] = processing_task
+        ongoing_tasks[review_id] = processing_task
 
     except json.JSONDecodeError:
         logging.exception("Error decoding JSON")
